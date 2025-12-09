@@ -57,7 +57,7 @@ function addCostumeLayer(costumeUrl) {
     const controllerPanel = document.getElementById('try-on-controller-panel');
     if (!container || !controllerPanel) return;
     const starterText = controllerPanel.querySelector('p');
-    if (starterText && starterText.textContent.includes('Нажмите на миниатюру')) {
+    if (starterText && starterText.textContent.includes('Нажмите на миниатюру для примерки.')) {
         starterText.remove();
     }
     const newLayer = document.createElement('img');
