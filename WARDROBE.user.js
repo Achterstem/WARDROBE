@@ -1,567 +1,553 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Гардероб, позволяющий примерить костюмы перед покупкой во вкладке кролей.
+// @version      1.1.0
+// @description  Гардероб, позволяющий примерить костюмы и содержащий в себе библиотеку костюмов.
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
 // @match        http*://*.catwar.su/rabbit*
+// @match        http*://*.catwar.net/settings_costumes*
+// @match        http*://*.catwar.su/settings_costumes*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
 // @license      MIT
 // @grant        none
-// @downloadURL https://update.greasyfork.org/scripts/558410/WARDROBE.user.js
-// @updateURL https://update.greasyfork.org/scripts/558410/WARDROBE.meta.js
 // ==/UserScript==
 
-/* global Sortable */
+const QUICK_CATEGORIES = [
+    { name: "МИФИЧЕСКИЕ ЗВЕРИ", id: 12025 }, { name: "ЕГИПЕТ", id: 12053 },
+    { name: "ТЁМНОЕ ФЭНТЕЗИ", id: 12119 },   { name: "ГОБЛИНКОР", id: 12335 },
+    { name: "САМОЦВЕТЫ", id: 12389 },         { name: "МОРСКИЕ ГЛУБИНЫ", id: 12427 },
+    { name: "ДОЛИНА ГРЁЗ", id: 12468 },       { name: "ОТТЕПЕЛЬ", id: 12524 },
+    { name: "КОСМОС", id: 12604 },            { name: "СТИМПАНК", id: 12967 },
+    { name: "ЯПОНИЯ", id: 13571 },            { name: "ДЖУНГЛИ", id: 13742 },
+    { name: "ПИРАТЫ", id: 100000 },           { name: "ПРАЗДНИК УРОЖАЯ", id: 100494 },
+    { name: "МАСКАРАД", id: 100634 },         { name: "ДИКИЙ ЗАПАД", id: 100929 },
+    { name: "ЗИМНЯЯ СКАЗКА", id: 101431 },    { name: "ТЁМНЫЕ ПРОРОЧЕСТВА", id: 101970 },
+    { name: "ПЕРВОБЫТНЫЙ МИР", id: 102899 },  { name: "МГНОВЕНИЯ ВЕСНЫ", id: 103309 },
+    { name: "ПУТЕШЕСТВИЕ В КОСМОС", id: 103644 }, { name: "КИБЕРПАНК", id: 103813 },
+    { name: "В ПОКОЯХ ЛЕСА", id: 104273 }
+];
 
+const THEMES = {
+    dark: {
+        gold: '#a29b8b', goldDim: '#7a6230', bg: '#1d1c19', panel: '#2d2b28',
+        glass: 'rgba(255,255,255,0.03)', border: '#3c3932', borderHi: 'rgba(201,168,76,0.7)',
+        text: '#e8dfc8', muted: '#998e7c', red: '#8b2020', shadow: 'rgba(0,0,0,.6)',
+        labelBg: 'rgba(0,0,0,.65)', thumbHoverBg: 'rgba(201,168,76,0.06)',
+    },
+    light: {
+        gold: '#695d45', goldDim: '#c9a84c', bg: '#d7d3c8', panel: '#cbc5b8',
+        glass: 'rgba(0,0,0,0.03)', border: '#b4ab9b', borderHi: 'rgba(154,110,26,0.75)',
+        text: '#2c2416', muted: '#5e5645', red: '#b03030', shadow: 'rgba(0,0,0,.18)',
+        labelBg: '#dfd8cf', thumbHoverBg: 'rgba(154,110,26,0.07)',
+    }
+};
+
+let currentTheme = localStorage.getItem('wd-theme') || 'dark';
+let C = { ...THEMES[currentTheme] };
 let DEFAULT_MODEL_URL = '';
 let layerCounter = 0;
-let pendingModelUrl = null;
-let pendingCostumeUrl = null;
+let pendingUrl = { model: null, costume: null };
+let searchStartID = 1;
+let searchItemsPerPage = 40;
+let activeLayers = [];
 
-let currentSearchStartID = 1;
-const ITEMS_PER_PAGE = 40;
+function applyTheme(theme) {
+    currentTheme = theme;
+    C = { ...THEMES[theme] };
+    localStorage.setItem('wd-theme', theme);
+    rebuildPanel();
+}
 
-const PRIMARY_COLOR = '#cccccc';
-const ACCENT_COLOR = '#4a90e2';
-const BG_COLOR_DARK = '#262626';
-const BG_COLOR_MID = '#333333';
-const BG_COLOR_LIGHT = '#1e1e1e';
-const BORDER_COLOR = '#444444';
-const BUTTON_GRAY = '#646464';
-const BUTTON_ACCENT_GRAY = '#555555';
+function injectStyles() {
+    const style = document.createElement('style');
+    style.id = 'wd-style';
+    style.textContent = `
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Jost:wght@300;400&display=swap');
+        #try-on-panel-wrapper * { font-family: 'Jost', sans-serif; }
+        #try-on-panel-wrapper h2, #try-on-panel-wrapper .wd-title { font-family: 'Cinzel', serif; }
+        #try-on-panel-wrapper input:focus { border-color: ${C.gold} !important; outline: none; }
+        #try-on-panel-wrapper button:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; }
+        .sortable-ghost { opacity: .4; background: ${C.glass}; border-radius: 2px; }
+        @keyframes wd-fade-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+        #try-on-panel-content { animation: wd-fade-in .25s ease; }
+        #wd-theme-toggle {
+            border: 2px solid ${C.gold}; color: ${C.gold};
+            font-size: 14px; cursor: pointer; padding: 3px 7px; border-radius: 50px;
+            transition: border-color .15s, color .15s; line-height: 1.4; flex-shrink: 0;
+        }
+        #wd-theme-toggle:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; background-color: ${C.bg} !important; }
+        @media (max-width: 768px) {
+            .w-flex { flex-direction: column !important; align-items: stretch !important; }
+            #control-col { margin-right: 0 !important; margin-bottom: 20px !important; }
+            .s-ctrl { flex-direction: column !important; gap: 8px !important; }
+            .s-ctrl > * { width: 100% !important; box-sizing: border-box; }
+        }
+    `;
+    document.head.appendChild(style);
+}
 
-const buttonStyle = (bgColor, fontWeight = 'normal', width = '100%') => `
-    width: ${width};
-    padding: 5px;
-    color: white;
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-    background-color: ${bgColor};
-    font-weight: ${fontWeight};
-`;
+const thumbCSS = (url, h) =>
+    `width:100%;height:${h};background:url('${url}') center/contain no-repeat;` +
+    `cursor:pointer;border:1px solid ${C.border};border-radius:2px;box-sizing:border-box;` +
+    `transition:border-color .15s,background-color .15s;`;
 
-const inputStyle = `
-    width: 90%;
-    padding: 5px;
-    margin-bottom: 5px;
-    margin-top: 5px;
-    border: 1px solid #555555;
-    background-color: ${BG_COLOR_LIGHT};
-    color: #f0f0f0;
-    border-radius: 3px;
-    font-size: 10px;
-    -moz-appearance: textfield;
-    appearance: textfield;
-`;
+function loaderHTML(type, title, withRestore) {
+    const inputS = `width:100%;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};` +
+        `border-radius:2px;font-size:16px;box-sizing:border-box;outline:none;font-family:inherit;`;
+    const btnS = col => `width:100%;padding:5px 8px;background:${col};color:${C.text};border:1px solid ${C.border};` +
+        `border-radius:2px;cursor:pointer;font-size:16px;letter-spacing:.06em;font-family:inherit;transition:border-color .15s,color .15s;`;
+    return `
+        <div style="margin-bottom:6px;order:${type === 'model' ? 3 : 4};">
+            <div id="${type}-loader-header" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:6px 0;border-top:1px solid ${C.border};">
+                <span style="font-size:12px;font-weight:bolder;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;">${title}</span>
+                <button id="${type}-loader-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:12px;cursor:pointer;padding:0;">▸</button>
+            </div>
+            <div id="${type}-loader-content" style="display:none;padding:6px 0;">
+                <input type="text" id="${type}-url-input" placeholder="URL изображения" style="${inputS} margin-bottom:5px;">
+                <input type="file" id="${type}-file-input" style="display:none;" accept="image/png,image/jpeg">
+                <button id="${type}-select-file-btn" style="${btnS(C.glass)} margin-bottom:4px;">выбрать файл</button>
+                ${withRestore ? `<button id="restore-model-btn" style="${btnS(C.glass)}">вернуть оригинал</button>` : ''}
+            </div>
+        </div>`;
+}
 
-const nameDisplayStyle = `font-size: 10px; color: #aaaaaa; margin: 0 0 5px 0; height: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`;
-const loaderContainerStyle = `margin-top: 5px; padding: 5px 5px 5px 7px; background-color: ${BG_COLOR_MID}; border-radius: 4px; width: 180px; order: 4; margin-bottom: 10px;`;
-const loaderHeaderStyle = `display: flex; justify-content: space-between; align-items: center; cursor: pointer;`;
-const searchButtonStyle = (padding = '5px 5px', width = 'auto') => `
-    ${buttonStyle(BUTTON_GRAY, 'normal', width)}
-    padding: ${padding};
-    line-height: 1;
-    font-size: 10px;
-`;
+function buildPanelInnerHTML(modelSrc) {
+    const quickBtns = QUICK_CATEGORIES.map(cat =>
+        `<button onclick="document.getElementById('search-start-id-input').value='${cat.id}';document.getElementById('search-range-btn').click();"
+            style="padding:3px 8px;font-size:14px;letter-spacing:.08em;background:${C.glass};color:${C.muted};border:1px solid ${C.border};border-radius:2px;cursor:pointer;transition:border-color .15s,color .15s;font-family:inherit;">
+            ${cat.name}</button>`
+    ).join('');
+
+    return `
+        <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold},transparent);"></div>
+        <div id="main-panel-header" style="display:flex;align-items:center;cursor:pointer;padding:14px 0;gap:12px;">
+            <button id="main-panel-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:16px;cursor:pointer;padding:0;line-height:1;transition:transform .2s;">▸</button>
+            <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
+            <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
+            <button id="wd-theme-toggle" title="${currentTheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}">${currentTheme === 'dark' ? '☀' : '☾'}</button>
+        </div>
+        <div id="try-on-panel-content" style="display:none;flex-direction:column;padding-bottom:20px;">
+            <div class="w-flex" style="display:flex;align-items:flex-start;gap:24px;">
+                <div id="control-col" style="display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;width:190px;">
+                    <div style="text-align:center;margin-bottom:16px;">
+                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
+                        <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 20px;transform:scale(1.4);transform-origin:center;">
+                            <img id="player-model" src="${modelSrc}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
+                        </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;">
+                        ${loaderHTML('model', 'Заменить модель', true)}
+                        ${loaderHTML('costume', 'Загрузить костюм', false)}
+                    </div>
+                    <div style="margin-top:10px;">
+                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:6px;text-transform:uppercase;">слои</div>
+                        <div id="try-on-controller-panel" style="max-height:320px;overflow-y:auto;padding:4px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                            <p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex-grow:1;min-width:0;">
+                    <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:8px;text-transform:uppercase;">костюмы на странице</div>
+                    <div id="try-on-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:3px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                </div>
+            </div>
+            <div style="margin-top:20px;border-top:4px solid ${C.border};padding-top:14px;">
+                <div id="costume-search-header" style="display:flex;align-items:center;background:linear-gradient(to right,${C.border} 0%,transparent 100%);padding:10px;font-weight:600;border-radius:15px;cursor:pointer;gap:10px;margin-bottom:4px;">
+                    <button id="costume-search-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:14px;cursor:pointer;padding:0;line-height:1;">▸</button>
+                    <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
+                </div>
+                <div id="costume-search-content" style="display:none;padding-top:12px;">
+                    <div id="quick-panel" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        ${quickBtns}
+                    </div>
+                    <div class="s-ctrl" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                        <span style="font-size:12px;letter-spacing:.08em;color:${C.muted};white-space:nowrap;">ID от:</span>
+                        <input type="text" id="search-start-id-input" placeholder="число"
+                            style="width:80px;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:2px;font-size:12px;font-family:inherit;box-sizing:border-box;">
+                        <button id="search-range-btn"
+                            style="padding:5px 14px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:10px;letter-spacing:.1em;font-family:inherit;transition:border-color .15s,color .15s;">
+                            НАЙТИ</button>
+                    </div>
+                    <div class="s-ctrl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        <button id="prev-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8592;</button>
+                        <span id="current-id-display" style="font-size:12px;letter-spacing:.1em;color:${C.muted};">1 — 40</span>
+                        <button id="next-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8594;</button>
+                    </div>
+                    <div id="costume-search-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function gridCols(panelId, minW, gap, fallback) {
+    const el = document.getElementById(panelId);
+    if (!el) return 1;
+    return Math.max(1, Math.floor(((el.clientWidth || el.offsetWidth || fallback) + gap) / (minW + gap)));
+}
 
 function updateLayerOrder() {
     const layers = document.getElementById('try-on-controller-panel')?.querySelectorAll('.costume-controller');
     if (!layers) return;
-    let baseZIndex = 1000;
-    layers.forEach((controller, i) => {
-        const layerId = controller.getAttribute('data-layer-id');
-        const costumeImage = document.getElementById(layerId);
-        if (costumeImage) {
-            costumeImage.style.zIndex = baseZIndex + (layers.length - i) * 10;
-        }
+    layers.forEach((ctrl, i) => {
+        const img = document.getElementById(ctrl.dataset.layerId);
+        if (img) img.style.zIndex = 1000 + (layers.length - i) * 10;
     });
 }
 
-function removeLayer(layerId) {
-    document.getElementById(layerId)?.remove();
-    document.querySelector(`.costume-controller[data-layer-id="${layerId}"]`)?.remove();
+function removeLayer(id) {
+    document.getElementById(id)?.remove();
+    document.querySelector(`.costume-controller[data-layer-id="${id}"]`)?.remove();
+    activeLayers = activeLayers.filter(l => l.id !== id);
     updateLayerOrder();
-    const controllerPanel = document.getElementById('try-on-controller-panel');
-    if (controllerPanel && controllerPanel.children.length === 0) {
-        controllerPanel.innerHTML = '<p style="font-style: italic; color: #aaaaaa;">Нажмите на миниатюру для примерки.</p>';
-    }
+    const panel = document.getElementById('try-on-controller-panel');
+    if (panel?.children.length === 0)
+        panel.innerHTML = `<p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;">нажмите на костюмы</p>`;
 }
 
-function handleFileSelect(event, type) {
-    const file = event.target.files[0];
-    if (!file || (file.type !== 'image/png' && file.type !== 'image/jpeg')) return;
+function changeModel(url) {
+    const img = document.getElementById('player-model');
+    if (!img || !url) return;
+    img.src = url;
+    document.getElementById('model-url-input').value = '';
+    document.getElementById('model-file-input').value = '';
+    pendingUrl.model = null;
+}
 
+function renderCostumeLayer(id, url, container, panel) {
+    panel.querySelector('p')?.remove();
+
+    const img = document.createElement('img');
+    img.id = id;
+    img.src = url;
+    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:100;`;
+    container.appendChild(img);
+
+    const costumeID = url.match(/costume\/(\d+)\.png/)?.[1] ?? '—';
+    const ctrl = document.createElement('div');
+    ctrl.className = 'costume-controller';
+    ctrl.dataset.layerId = id;
+    ctrl.style.cssText =
+        `display:flex;align-items:center;gap:6px;border:1px solid ${C.border};border-radius:3px;` +
+        `padding:5px 6px;margin-bottom:4px;background:${C.glass};font-size:12px;cursor:move;transition:border-color .15s;`;
+    ctrl.innerHTML = `
+        <div style="width:24px;height:24px;flex-shrink:0;background:url('${url}') center/contain no-repeat;border:1px solid ${C.border};border-radius:2px;"></div>
+        <span style="flex-grow:1;color:${C.text};letter-spacing:.04em;">ID ${costumeID}</span>
+        <button class="remove-layer-btn" data-layer-id="${id}"
+            style="background:${C.red};color:#fff;border:none;width:18px;height:18px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;">✕</button>
+    `;
+    ctrl.addEventListener('mouseenter', () => ctrl.style.borderColor = C.goldDim);
+    ctrl.addEventListener('mouseleave', () => ctrl.style.borderColor = C.border);
+    ctrl.querySelector('.remove-layer-btn').addEventListener('click', e => { e.stopPropagation(); removeLayer(id); });
+    panel.prepend(ctrl);
+}
+
+function addCostumeLayer(url) {
+    if (!url || url.includes('/cw3/composited/')) return;
+    const id = `costume-layer-${++layerCounter}`;
+    const container = document.querySelector('#try-on-panel-content .try-on-container');
+    const panel = document.getElementById('try-on-controller-panel');
+    if (!container || !panel) return;
+    activeLayers.unshift({ id, url });
+    renderCostumeLayer(id, url, container, panel);
+    updateLayerOrder();
+}
+
+function handleFileSelect(e, type) {
+    const file = e.target.files[0];
+    if (!file || !['image/png', 'image/jpeg'].includes(file.type)) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
-        const fileNameDisplayId = type === 'model' ? 'model-file-name-display' : 'costume-file-name-display';
-        if (type === 'model') {
-            pendingModelUrl = e.target.result;
-        } else {
-            pendingCostumeUrl = e.target.result;
-        }
-        document.getElementById(fileNameDisplayId).textContent = `Файл выбран: ${file.name}`;
-    };
+    reader.onload = ev => { pendingUrl[type] = ev.target.result; handleLoad(type); };
     reader.readAsDataURL(file);
 }
 
 function handleLoad(type) {
-    const urlInput = document.getElementById(`${type}-url-input`);
-    const pendingUrl = type === 'model' ? pendingModelUrl : pendingCostumeUrl;
-
-    if (pendingUrl) {
-        if (type === 'model') {
-            changePlayerModel(pendingUrl);
-            pendingModelUrl = null;
-        } else {
-            addCostumeLayer(pendingUrl);
-            pendingCostumeUrl = null;
-            document.getElementById('costume-file-input').value = '';
-            document.getElementById('costume-file-name-display').textContent = 'Файл не выбран';
-        }
-    } else if (urlInput && urlInput.value) {
-        if (type === 'model') {
-            changePlayerModel(urlInput.value);
-        } else {
-            addCostumeLayer(urlInput.value);
-            urlInput.value = '';
-        }
+    const url = pendingUrl[type] || document.getElementById(`${type}-url-input`)?.value;
+    if (!url) return;
+    if (type === 'model') {
+        changeModel(url);
+    } else {
+        addCostumeLayer(url);
+        pendingUrl.costume = null;
+        document.getElementById('costume-file-input').value = '';
+        document.getElementById('costume-url-input').value = '';
     }
 }
 
 function togglePanel(id) {
-    const content = document.getElementById(id + '-content');
-    const toggleBtn = document.getElementById(id + '-toggle-btn');
-    if (!content || !toggleBtn) return;
-
-    const isVisible = content.style.display !== 'none' && content.style.display !== '';
-
-    content.style.display = isVisible ? 'none' : 'block';
-    toggleBtn.textContent = isVisible ? '▶' : '▼';
-
-    if (!isVisible && id === 'costume-search' && document.getElementById('costume-search-thumbnails').children.length === 0) {
-        updateCostumeSearchDisplay(1);
-    }
+    const content = document.getElementById(`${id}-content`);
+    const arrow = document.getElementById(`${id}-toggle-btn`);
+    if (!content || !arrow) return;
+    const open = content.style.display === 'none' || content.style.display === '';
+    content.style.display = open ? 'block' : 'none';
+    arrow.textContent = open ? '▾' : '▸';
+    if (open && id === 'costume-search' && !document.getElementById('costume-search-thumbnails').children.length)
+        updateSearchDisplay(1);
 }
 
-function createLoaderHTML(type, title, confirmText, restore = false) {
-    const loaderId = `${type}-loader`;
-    const containerStyle = loaderContainerStyle + (type === 'model' ? 'margin-top: 20px; order: 3;' : '');
+function updateSearchDisplay(startId) {
+    const panel = document.getElementById('costume-search-thumbnails');
+    if (!panel) return;
+    const cols = gridCols('costume-search-thumbnails', 100, 4, 600);
+    searchItemsPerPage = cols * 5;
+    searchStartID = Math.max(1, startId);
+    panel.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    panel.innerHTML = '';
 
-    return `
-        <div id="${loaderId}-container" style="${containerStyle}">
-            <div id="${loaderId}-header" style="${loaderHeaderStyle}">
-                <h4 style="font-size: 14px; margin: 0; color: ${PRIMARY_COLOR};">${title}</h4>
-                <button id="${loaderId}-toggle-btn" style="background: none; border: none; color: ${PRIMARY_COLOR}; font-size: 14px; cursor: pointer; padding: 0 5px; line-height: 1;">▶</button>
-            </div>
-            <div id="${loaderId}-content" style="display: none;">
-                <input type="text" id="${type}-url-input" placeholder="URL изображения" style="${inputStyle}">
-                <div id="${type}-file-name-display" style="${nameDisplayStyle}">Файл не выбран</div>
-                <input type="file" id="${type}-file-input" style="display: none;" accept="image/png, image/jpeg">
-                <button id="${type}-select-file-btn" style="${buttonStyle(BUTTON_ACCENT_GRAY)} margin-bottom: 5px;">Выбрать файл</button>
-                <button id="${type}-confirm-load-btn" style="${buttonStyle(BUTTON_GRAY, 'bold')} margin-bottom: 8px;">${confirmText}</button>
-                ${restore ? `<button id="restore-model-btn" style="${buttonStyle(BUTTON_GRAY)}">Вернуть модель</button>` : ''}
-            </div>
-        </div>
-    `;
-}
+    for (let i = 0; i < searchItemsPerPage; i++) {
+        const costumeID = searchStartID + i;
+        const url = `/cw3/cats/0/costume/${costumeID}.png`;
+        const thumb = document.createElement('div');
+        thumb.style.cssText = thumbCSS(url, '150px') + `position:relative;background-color:${C.glass};overflow:hidden;`;
 
-function changePlayerModel(newUrl) {
-    const modelImg = document.getElementById('player-model');
-    if (!modelImg || !newUrl) return;
+        const label = document.createElement('div');
+        label.style.cssText =
+            `position:absolute;bottom:0;left:0;width:100%;background:${C.labelBg};` +
+            `color:${C.muted};font-size:12px;text-align:center;padding:2px 0;letter-spacing:.05em;`;
+        label.textContent = costumeID;
+        thumb.appendChild(label);
 
-    modelImg.src = newUrl;
-    document.getElementById('model-url-input').value = '';
-    pendingModelUrl = null;
-    document.getElementById('model-file-name-display').textContent = 'Файл не выбран';
-    document.getElementById('model-file-input').value = '';
-}
-
-function addCostumeLayer(costumeUrl) {
-    if (!costumeUrl || costumeUrl.includes('/cw3/composited/')) return;
-    layerCounter++;
-    const layerId = `costume-layer-${layerCounter}`;
-    const container = document.querySelector('#try-on-panel-content .try-on-container');
-    const controllerPanel = document.getElementById('try-on-controller-panel');
-    if (!container || !controllerPanel) return;
-
-    controllerPanel.querySelector('p')?.remove();
-
-    const newLayer = document.createElement('img');
-    newLayer.id = layerId;
-    newLayer.src = costumeUrl;
-    newLayer.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 100;`;
-    container.appendChild(newLayer);
-
-    const controller = document.createElement('div');
-    controller.className = 'costume-controller';
-    controller.setAttribute('data-layer-id', layerId);
-    controller.style.cssText = `display: flex; align-items: center; justify-content: space-between; border: 1px solid ${BORDER_COLOR}; border-radius: 4px; padding: 5px; margin-bottom: 5px; background-color: #383838; font-size: 10px; cursor: move;`;
-
-    const costumeID = costumeUrl.match(/costume\/(\d+)\.png/)?.[1] || `Загруженный`;
-
-    controller.innerHTML = `
-        <div style="display: flex; align-items: center; flex-grow: 1;">
-            <div style="width: 25px; height: 25px; background-image: url('${costumeUrl}'); background-size: contain; background-repeat: no-repeat; margin-right: 5px; border: 1px solid #666666; border-radius: 3px;"></div>
-            <div>
-                <span style="font-weight: bold; color: #f0f0f0;">ID: ${costumeID}</span>
-            </div>
-        </div>
-        <div style="margin-left: 10px;">
-            <button class="remove-layer-btn" data-layer-id="${layerId}" title="Удалить слой" style="background-color: #a00000; color: white; border: none; padding: 3px 5px 0 5px; cursor: pointer; line-height: 1; border-radius: 3px;">✖</button>
-        </div>
-    `;
-    controllerPanel.prepend(controller);
-
-    controller.querySelector('.remove-layer-btn')?.addEventListener('click', (event) => {
-        event.stopPropagation();
-        removeLayer(layerId);
-    });
-
-    updateLayerOrder();
-}
-
-function updateCostumeSearchDisplay(startId) {
-    const thumbnailsPanel = document.getElementById('costume-search-thumbnails');
-    if (!thumbnailsPanel) return;
-
-    thumbnailsPanel.innerHTML = '';
-    currentSearchStartID = Math.max(1, startId);
-
-    const THUMB_WIDTH = '100px';
-    const THUMB_HEIGHT = '150px';
-
-    for (let i = 0; i < ITEMS_PER_PAGE; i++) {
-        const costumeID = currentSearchStartID + i;
-        const costumeUrl = `/cw3/cats/0/costume/${costumeID}.png`;
-
-        const thumbnail = document.createElement('div');
-        thumbnail.style.cssText = `
-            width: ${THUMB_WIDTH};
-            height: ${THUMB_HEIGHT};
-            background-image: url('${costumeUrl}');
-            background-size: contain;
-            background-repeat: no-repeat;
-            cursor: pointer;
-            border: 1px solid ${BORDER_COLOR};
-            border-radius: 3px;
-            position: relative;
-            background-color: #2a2a2a;
-            overflow: hidden;
-        `;
-
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            color: white;
-            font-size: 10px;
-            text-align: center;
-            padding: 2px 0;
-            font-weight: bold;
-        `;
-        overlay.textContent = `${costumeID}`;
-
-        thumbnail.appendChild(overlay);
-
-        const thumbnailClick = () => addCostumeLayer(costumeUrl);
-        const mouseEnter = () => { thumbnail.style.borderColor = ACCENT_COLOR; thumbnail.style.backgroundColor = '#383838'; };
-        const mouseLeave = () => { thumbnail.style.borderColor = BORDER_COLOR; thumbnail.style.backgroundColor = '#2a2a2a'; };
-
-        thumbnail.addEventListener('click', thumbnailClick);
-        thumbnail.addEventListener('mouseenter', mouseEnter);
-        thumbnail.addEventListener('mouseleave', mouseLeave);
-
-        thumbnailsPanel.appendChild(thumbnail);
+        thumb.addEventListener('click', () => addCostumeLayer(url));
+        thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
+        thumb.addEventListener('mouseleave', () => { thumb.style.borderColor = C.border; thumb.style.backgroundColor = C.glass; });
+        panel.appendChild(thumb);
     }
 
     document.getElementById('current-id-display').textContent =
-        `ID: ${currentSearchStartID} - ${currentSearchStartID + ITEMS_PER_PAGE - 1}`;
+        `${searchStartID} — ${searchStartID + searchItemsPerPage - 1}`;
 }
 
 function handleSearchRange() {
-    const startInput = document.getElementById('search-start-id-input');
+    const raw = parseInt(document.getElementById('search-start-id-input').value.replace(/\D/g, ''), 10) || 1;
+    updateSearchDisplay(Math.max(1, Math.floor((raw - 1) / searchItemsPerPage) * searchItemsPerPage + 1));
+}
 
-    let rawValue = startInput.value.replace(/\D/g, '');
-    let startID = parseInt(rawValue, 10);
+function navigateSearch(dir) {
+    updateSearchDisplay(Math.max(1, searchStartID + dir * searchItemsPerPage));
+}
 
-    if (isNaN(startID) || rawValue.trim() === '') {
-        startID = 1;
+function buildPageGrid(costumeUrls) {
+    const panel = document.getElementById('try-on-thumbnails');
+    if (!panel) return;
+    const cols = gridCols('try-on-thumbnails', 50, 3, 400);
+    panel.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    panel.innerHTML = '';
+
+    costumeUrls.forEach(url => {
+        const thumb = document.createElement('div');
+        thumb.style.cssText = thumbCSS(url, '75px') + `background-color:${C.glass};`;
+        thumb.addEventListener('click', () => addCostumeLayer(url));
+        thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
+        thumb.addEventListener('mouseleave', () => { thumb.style.borderColor = C.border; thumb.style.backgroundColor = C.glass; });
+        panel.appendChild(thumb);
+    });
+
+    const rem = costumeUrls.length % cols;
+    if (rem) for (let i = 0; i < cols - rem; i++) {
+        const ghost = document.createElement('div');
+        ghost.style.cssText = `width:100%;height:75px;box-sizing:border-box;`;
+        panel.appendChild(ghost);
+    }
+}
+
+function bindPanelEvents(costumeUrls) {
+    document.getElementById('model-loader-header').addEventListener('click', () => togglePanel('model-loader'));
+    document.getElementById('costume-loader-header').addEventListener('click', () => togglePanel('costume-loader'));
+    document.getElementById('costume-search-header').addEventListener('click', () => togglePanel('costume-search'));
+    document.getElementById('restore-model-btn').addEventListener('click', () => changeModel(DEFAULT_MODEL_URL));
+    document.getElementById('search-range-btn').addEventListener('click', handleSearchRange);
+    document.getElementById('prev-page-btn').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('next-page-btn').addEventListener('click', () => navigateSearch(1));
+
+    const navBtnHover = id => {
+        const el = document.getElementById(id);
+        el.addEventListener('mouseenter', () => el.style.color = C.gold);
+        el.addEventListener('mouseleave', () => el.style.color = C.muted);
+    };
+    navBtnHover('prev-page-btn');
+    navBtnHover('next-page-btn');
+
+    ['model', 'costume'].forEach(type => {
+        document.getElementById(`${type}-select-file-btn`).addEventListener('click', () => document.getElementById(`${type}-file-input`).click());
+        document.getElementById(`${type}-file-input`).addEventListener('change', e => handleFileSelect(e, type));
+        document.getElementById(`${type}-url-input`).addEventListener('keydown', e => { if (e.key === 'Enter') handleLoad(type); });
+    });
+
+    document.getElementById('main-panel-header').addEventListener('click', e => {
+        if (e.target.closest('#wd-theme-toggle')) return;
+        const content = document.getElementById('try-on-panel-content');
+        const wrapper = document.getElementById('try-on-panel-wrapper');
+        const toggleBtn = document.getElementById('main-panel-toggle-btn');
+        const open = content.style.display === 'none';
+        content.style.display = open ? 'flex' : 'none';
+        toggleBtn.textContent = open ? '▾' : '▸';
+        toggleBtn.style.transform = open ? 'rotate(0deg)' : '';
+        wrapper.style.paddingBottom = open ? '20px' : '0';
+    });
+
+    document.getElementById('wd-theme-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    });
+
+    requestAnimationFrame(() => buildPageGrid(costumeUrls));
+
+    new ResizeObserver(() => {
+        buildPageGrid(costumeUrls);
+        const sp = document.getElementById('costume-search-thumbnails');
+        if (sp?.children.length) updateSearchDisplay(searchStartID);
+    }).observe(document.getElementById('try-on-thumbnails'));
+
+    const initSortable = () => new Sortable(document.getElementById('try-on-controller-panel'), {
+        animation: 150, ghostClass: 'sortable-ghost', onEnd: updateLayerOrder,
+    });
+    if (window.Sortable) {
+        initSortable();
+    } else if (!document.querySelector('script[src*="sortablejs"]')) {
+        const sortableScript = document.createElement('script');
+        sortableScript.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
+        sortableScript.onload = initSortable;
+        document.head.appendChild(sortableScript);
+    }
+}
+
+function rebuildPanel() {
+    const wrapper = document.getElementById('try-on-panel-wrapper');
+    if (!wrapper) return;
+
+    const wasOpen     = document.getElementById('try-on-panel-content')?.style.display !== 'none';
+    const searchOpen  = document.getElementById('costume-search-content')?.style.display !== 'none';
+    const modelOpen   = document.getElementById('model-loader-content')?.style.display !== 'none';
+    const costumeOpen = document.getElementById('costume-loader-content')?.style.display !== 'none';
+    const modelSrc    = document.getElementById('player-model')?.src ?? DEFAULT_MODEL_URL;
+
+    document.getElementById('wd-style')?.remove();
+    injectStyles();
+
+    wrapper.style.cssText =
+        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
+        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
+        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
+        `position:relative;overflow:hidden;`;
+    wrapper.innerHTML = buildPanelInnerHTML(modelSrc);
+
+    const costumeUrls = [];
+    document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
+        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
+    });
+    bindPanelEvents(costumeUrls);
+
+    if (wasOpen) {
+        document.getElementById('try-on-panel-content').style.display = 'flex';
+        document.getElementById('main-panel-toggle-btn').textContent = '▾';
+        wrapper.style.paddingBottom = '20px';
+    }
+    if (searchOpen) {
+        document.getElementById('costume-search-content').style.display = 'block';
+        document.getElementById('costume-search-toggle-btn').textContent = '▾';
+        updateSearchDisplay(searchStartID);
+    }
+    ['model', 'costume'].forEach(t => {
+        if (t === 'model' ? modelOpen : costumeOpen)
+            document.getElementById(`${t}-loader-content`).style.display = 'block';
+    });
+
+    if (activeLayers.length) {
+        const container = document.querySelector('#try-on-panel-content .try-on-container');
+        const panel = document.getElementById('try-on-controller-panel');
+        [...activeLayers].reverse().forEach(({ id, url }) => renderCostumeLayer(id, url, container, panel));
+        updateLayerOrder();
+    }
+}
+
+function extractModelUrl(firstDiv) {
+    if (firstDiv) {
+        const attr = firstDiv.getAttribute('style') || '';
+        const m = attr.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+        const cm = window.getComputedStyle(firstDiv).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (cm?.[1]) return cm[1];
+    }
+    for (const el of document.querySelectorAll('div[style*="/cw3/composited/"]')) {
+        const m = el.getAttribute('style').match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+    }
+    const comp = document.querySelector('div[style*="composited"]');
+    if (comp) {
+        const m = window.getComputedStyle(comp).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+    }
+    return '';
+}
+
+function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
+    let insertPosition, firstDiv;
+    if (typeof firstDivOrPosition === 'string') {
+        insertPosition = firstDivOrPosition;
+        firstDiv = null;
+    } else {
+        insertPosition = 'afterend';
+        firstDiv = firstDivOrPosition;
+        costumeSourceSelector = 'div[style*="background-image: url"]';
     }
 
-    let newStartID = Math.max(1, Math.floor((startID - 1) / ITEMS_PER_PAGE) * ITEMS_PER_PAGE + 1);
+    const url = extractModelUrl(firstDiv);
+    if (url) DEFAULT_MODEL_URL = url;
 
-    updateCostumeSearchDisplay(newStartID);
+    injectStyles();
+
+    const wrapper = document.createElement('div');
+    wrapper.id = 'try-on-panel-wrapper';
+    wrapper.style.cssText =
+        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
+        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
+        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
+        `position:relative;overflow:hidden;`;
+
+    if (insertPosition === 'afterend') {
+        anchorEl.insertAdjacentElement('afterend', document.createElement('hr'));
+        anchorEl.insertAdjacentElement('afterend', wrapper);
+    } else {
+        anchorEl.insertAdjacentHTML(insertPosition, wrapper.outerHTML + '<hr>');
+    }
+
+    document.getElementById('try-on-panel-wrapper').innerHTML = buildPanelInnerHTML(DEFAULT_MODEL_URL);
+
+    const costumeUrls = [];
+    document.querySelectorAll(costumeSourceSelector).forEach(icon => {
+        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
+    });
+
+    bindPanelEvents(costumeUrls);
 }
 
-function navigateSearch(direction) {
-    let newStartID = currentSearchStartID + (direction * ITEMS_PER_PAGE);
-    updateCostumeSearchDisplay(Math.max(1, newStartID));
-}
+(function () {
+    const isSettingsCostumes = /\/settings_costumes/.test(location.pathname);
 
-(function() {
+    if (isSettingsCostumes) {
+        const tryInsert = () => {
+            if (document.getElementById('try-on-panel-wrapper')) return true;
+            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
+            if (!col3) return false;
+            const firstDiv =
+                col3.querySelector('[class="first"]') ||
+                col3.querySelector('[class*="first"]') ||
+                document.querySelector('[data-v-59afe5e8][class="first"]') ||
+                document.querySelector('[class="first"]');
+            if (!firstDiv) return false;
+            injectPanel(col3, firstDiv);
+            return true;
+        };
 
-    function loadSortableJS(callback) {
-        if (typeof Sortable !== 'undefined') {
-            callback();
-            return;
+        if (!tryInsert()) {
+            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
+            observer.observe(document.body, { childList: true, subtree: true });
         }
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
-        script.onload = callback;
-        document.head.appendChild(script);
-    }
-
-    function initSortable() {
-        const controllerPanel = document.getElementById('try-on-controller-panel');
-        if (!controllerPanel) return;
-
-        new Sortable(controllerPanel, {
-            animation: 150,
-            ghostClass: 'sortable-ghost',
-            onEnd: updateLayerOrder,
-        });
-
-        const style = document.createElement('style');
-        style.textContent = `.sortable-ghost { opacity: 0.5; background-color: #555555; border-radius: 4px; }`;
-        document.head.appendChild(style);
-    }
-
-    function installTryOnPanel() {
-        document.getElementById('try-on-panel')?.remove();
-        layerCounter = 0;
+    } else {
         const mainDiv = document.getElementById('main');
         if (!mainDiv) return;
-
-        let initialModelElement = document.querySelector('div[style*="/cw3/composited/"]');
-        if (initialModelElement) {
-            const urlMatch = window.getComputedStyle(initialModelElement).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-            if (urlMatch && urlMatch[1]) {
-                DEFAULT_MODEL_URL = urlMatch[1];
-            }
-        }
-
-        const modelLoaderHTML = createLoaderHTML('model', 'Заменить модель', 'ОК', true);
-        const costumeLoaderHTML = createLoaderHTML('costume', 'Загрузить костюм', 'Добавить костюм', false);
-
-        const costumeSearchHTML = `
-            <div id="costume-search-section" style="
-                border-top: 1px solid ${BORDER_COLOR};
-                padding-top: 10px;
-                margin-top: 15px;
-            ">
-                <div id="costume-search-header" style="${loaderHeaderStyle}">
-                    <h4 style="font-size: 16px; margin: 0; color: ${PRIMARY_COLOR};">ПОИСК КОСТЮМОВ</h4>
-                    <button id="costume-search-toggle-btn" style="background: none; border: none; color: ${PRIMARY_COLOR}; font-size: 18px; cursor: pointer; padding: 0 5px; line-height: 1;">▶</button>
-                </div>
-                <div id="costume-search-content" style="display: none; padding-top: 10px;">
-                    <div style="display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
-                        <span style="margin-right: 10px; font-size: 12px;">Искать от ID:</span>
-                        <input type="text" id="search-start-id-input" placeholder="число" style="
-                            ${inputStyle}
-                            width: 100px;
-                            margin: 0 10px 0 0;
-                            padding: 4px;
-                            &::-webkit-inner-spin-button,
-                            &::-webkit-outer-spin-button {
-                                -webkit-appearance: none;
-                                margin: 0;
-                            }
-                        ">
-                        <button id="search-range-btn" style="${searchButtonStyle('4px 8px', 'auto')}">ПОИСК</button>
-                    </div>
-
-                    <div style="
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        margin-bottom: 10px;
-                        padding: 5px;
-                        background-color: ${BG_COLOR_MID};
-                        border-radius: 4px;
-                    ">
-                        <button id="prev-page-btn" style="${searchButtonStyle('4px 8px', 'auto')}">&#9664; Назад</button>
-                        <span id="current-id-display" style="font-size: 12px; font-weight: bold; color: #f0f0f0;">ID: 1 - 40</span>
-                        <button id="next-page-btn" style="${searchButtonStyle('4px 8px', 'auto')}">Вперёд &#9654;</button>
-                    </div>
-
-                    <div id="costume-search-thumbnails" style="
-                        display: grid;
-                        grid-template-columns: repeat(8, 1fr);
-                        gap: 5px;
-                        border: 1px solid ${BG_COLOR_MID};
-                        padding: 10px;
-                        background: ${BG_COLOR_LIGHT};
-                        border-radius: 4px;
-                    ">
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const panelWrapperHTML = `
-            <div id="try-on-panel-wrapper" style="
-                border: 1px solid ${BORDER_COLOR};
-                border-radius: 8px;
-                background-color: ${BG_COLOR_DARK};
-                padding: 0 15px 0 15px;
-                margin: 20px auto;
-                width: 90%;
-                max-width: 1000px;
-                color: #f0f0f0;
-            ">
-
-                <div id="main-panel-header" style="
-                    display: flex;
-                    align-items: center;
-                    cursor: pointer;
-                    padding: 10px 0;
-                    margin-bottom: 0;
-                ">
-                    <button id="main-panel-toggle-btn" style="
-                        background: none;
-                        border: none;
-                        color: ${PRIMARY_COLOR};
-                        font-size: 18px;
-                        cursor: pointer;
-                        padding: 0 5px;
-                        line-height: 1;
-                        margin-right: 10px;
-                    ">▶</button>
-                    <h2 style="font-size: 18px; margin: 0; color: ${PRIMARY_COLOR};">ПРИМЕРКА КОСТЮМОВ</h2>
-                </div>
-                <div id="try-on-panel-content" style="
-                    display: none;
-                    flex-direction: column;
-                    padding-top: 15px;
-                    padding-bottom: 15px;
-                ">
-                    <div style="display: flex; justify-content: space-around; align-items: flex-start;">
-                        <div id="control-column" style="
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            flex-shrink: 0;
-                            margin-right: 30px;
-                            text-align: center;
-                        ">
-                            <h3 style="font-size: 16px; margin: 0; padding: 0; margin-bottom: 25px; color: ${PRIMARY_COLOR}; order: 1;">ПАРАМЕТРЫ ПРИМЕРКИ</h3>
-                            <div class="try-on-container" style="position: relative; width: 100px; height: 100px; margin: 5px auto 10px auto; transform: scale(1.5); order: 2;">
-                                <img id="player-model"
-                                    src="${DEFAULT_MODEL_URL}"
-                                    alt="Модель игрока"
-                                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1;"
-                                >
-                            </div>
-                            ${modelLoaderHTML}
-                            ${costumeLoaderHTML}
-                            <h4 style="font-size: 14px; margin-bottom: 5px; color: ${PRIMARY_COLOR}; order: 5;">Слои костюмов</h4>
-                            <div id="try-on-controller-panel" style="
-                                width: 180px;
-                                max-height: 400px;
-                                overflow-y: auto;
-                                margin: 2px auto 0 auto;
-                                padding: 5px;
-                                background-color: ${BG_COLOR_LIGHT};
-                                border: 1px solid ${BG_COLOR_MID};
-                                border-radius: 4px;
-                                order: 6;
-                            ">
-                                <p style="font-style: italic; color: #aaaaaa;">Нажмите на миниатюру для примерки.</p>
-                            </div>
-                        </div>
-                        <div style="flex-grow: 1;">
-                            <h3 style="font-size: 16px; margin: 0 0 10px 0; color: ${PRIMARY_COLOR};">КОСТЮМЫ НА СТРАНИЦЕ</h3>
-                            <div id="try-on-thumbnails" style="
-                                display: grid;
-                                grid-template-columns: repeat(12, 1fr);
-                                gap: 3px;
-                                border: 1px solid ${BG_COLOR_MID};
-                                padding: 10px;
-                                background: ${BG_COLOR_LIGHT};
-                                border-radius: 4px;
-                            ">
-                                </div>
-                        </div>
-                    </div>
-                    ${costumeSearchHTML}
-                </div>
-            </div>
-            <hr>
-        `;
-
-
-        mainDiv.insertAdjacentHTML('beforebegin', panelWrapperHTML);
-
-        document.getElementById('model-loader-header')?.addEventListener('click', () => togglePanel('model-loader'));
-        document.getElementById('costume-loader-header')?.addEventListener('click', () => togglePanel('costume-loader'));
-        document.getElementById('costume-search-header')?.addEventListener('click', () => togglePanel('costume-search'));
-
-        document.getElementById('model-confirm-load-btn')?.addEventListener('click', () => handleLoad('model'));
-        document.getElementById('costume-confirm-load-btn')?.addEventListener('click', () => handleLoad('costume'));
-        document.getElementById('restore-model-btn')?.addEventListener('click', () => changePlayerModel(DEFAULT_MODEL_URL));
-
-        document.getElementById('search-range-btn')?.addEventListener('click', handleSearchRange);
-        document.getElementById('prev-page-btn')?.addEventListener('click', () => navigateSearch(-1));
-        document.getElementById('next-page-btn')?.addEventListener('click', () => navigateSearch(1));
-
-        document.getElementById('model-select-file-btn')?.addEventListener('click', () => document.getElementById('model-file-input')?.click());
-        document.getElementById('model-file-input')?.addEventListener('change', (e) => handleFileSelect(e, 'model'));
-
-        document.getElementById('costume-select-file-btn')?.addEventListener('click', () => document.getElementById('costume-file-input')?.click());
-        document.getElementById('costume-file-input')?.addEventListener('change', (e) => handleFileSelect(e, 'costume'));
-
-        const thumbnailsPanel = document.getElementById('try-on-thumbnails');
-        document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
-            const style = window.getComputedStyle(icon);
-            let imageUrl = style.backgroundImage;
-            const urlMatch = imageUrl.match(/url\(['"]?(.*?)['"]?\)/);
-
-            if (urlMatch && urlMatch[1] && urlMatch[1].includes('/cw3/cats/')) {
-                const costumeUrl = urlMatch[1];
-                const thumbnail = document.createElement('div');
-
-                thumbnail.style.cssText = `
-                    width: 50px;
-                    height: 75px;
-                    background-image: url('${costumeUrl}');
-                    background-size: contain;
-                    background-repeat: no-repeat;
-                    cursor: pointer;
-                    border: 1px solid ${BORDER_COLOR};
-                    border-radius: 3px;
-                `;
-
-                const thumbnailClick = () => addCostumeLayer(costumeUrl);
-                const mouseEnter = () => { thumbnail.style.borderColor = ACCENT_COLOR; thumbnail.style.backgroundColor = '#383838'; };
-                const mouseLeave = () => { thumbnail.style.borderColor = BORDER_COLOR; thumbnail.style.backgroundColor = 'transparent'; };
-
-                thumbnail.addEventListener('click', thumbnailClick);
-                thumbnail.addEventListener('mouseenter', mouseEnter);
-                thumbnail.addEventListener('mouseleave', mouseLeave);
-
-                thumbnailsPanel.appendChild(thumbnail);
-            }
-        });
-
-        loadSortableJS(initSortable);
-
-        document.getElementById('main-panel-header')?.addEventListener('click', () => {
-            const mainContent = document.getElementById('try-on-panel-content');
-            const toggleBtn = document.getElementById('main-panel-toggle-btn');
-            const panel = document.getElementById('try-on-panel-wrapper');
-            const isVisible = mainContent.style.display !== 'none';
-
-            mainContent.style.display = isVisible ? 'none' : 'flex';
-            toggleBtn.textContent = isVisible ? '▶' : '▼';
-            panel.style.padding = isVisible ? '0 15px 0 15px' : '0 15px 15px 15px';
-        });
+        injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
     }
-
-    installTryOnPanel();
 })();
