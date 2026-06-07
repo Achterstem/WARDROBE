@@ -17,3 +17,5 @@
 ## Установка
 Нужен Tampermonkey / Greasemonkey / Violentmonkey.<br>
 Установка через raw код, либо по ссылке -> https://greasyfork.org/ru/scripts/558410-wardrobe
+
+# NEW! Категории в поиске костюмов для быстрого переключения. Добавление светлой/тёмной темы.
