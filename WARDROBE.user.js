@@ -8,6 +8,8 @@
 // @match        http*://*.catwar.su/rabbit*
 // @match        http*://*.catwar.net/settings_costumes*
 // @match        http*://*.catwar.su/settings_costumes*
+// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/wardrobe.user.js
+// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/wardrobe.user.js
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
 // @license      MIT
 // @grant        none
