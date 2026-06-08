@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.0
 // @description  Гардероб, позволяющий примерить костюмы и содержащий в себе библиотеку костюмов.
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
