@@ -1,5 +1,5 @@
 # 🪄 WARDROBE
-ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
+ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155<br>
 Примерочная для CatWar, облегчающая процесс подбора скинов.
 
 ## Где найти?
