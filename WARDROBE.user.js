@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
-// @description  Гардероб, позволяющий примерить костюмы и содержащий в себе библиотеку костюмов.
+// @version      1.1.2
+// @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
 // @match        http*://*.catwar.su/rabbit*
