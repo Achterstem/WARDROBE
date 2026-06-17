@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
 // @match        http*://*.catwar.su/rabbit*
 // @match        http*://*.catwar.net/settings_costumes*
 // @match        http*://*.catwar.su/settings_costumes*
-// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/wardrobe.user.js
-// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/wardrobe.user.js
+// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
+// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
 // @license      MIT
 // @grant        none
