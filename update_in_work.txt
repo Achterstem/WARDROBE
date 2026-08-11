@@ -916,8 +916,18 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
             observer.observe(document.body, { childList: true, subtree: true });
         }
     } else {
-        const mainDiv = document.getElementById('main');
-        if (!mainDiv) return;
-        injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
+        const tryInsertRabbit = () => {
+            if (document.getElementById('try-on-panel-wrapper')) return true;
+            const mainDiv = document.getElementById('main');
+            if (!mainDiv) return false;
+
+            injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
+            return true;
+        };
+
+        if (!tryInsertRabbit()) {
+            const observer = new MutationObserver(() => { if (tryInsertRabbit()) observer.disconnect(); });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
     }
 })();
