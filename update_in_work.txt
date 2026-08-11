@@ -1,0 +1,867 @@
+// ==UserScript==
+// @name         WARDROBE
+// @namespace    http://tampermonkey.net/
+// @version      1.1.6
+// @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
+// @author       RESSOR
+// @match        http*://*.catwar.net/rabbit*
+// @match        http*://*.catwar.su/rabbit*
+// @match        http*://*.catwar.net/settings_costumes*
+// @match        http*://*.catwar.su/settings_costumes*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
+// @license      MIT
+// @grant        none
+// @downloadURL  https://update.greasyfork.org/scripts/558410/WARDROBE.user.js
+// @updateURL    https://update.greasyfork.org/scripts/558410/WARDROBE.meta.js
+// ==/UserScript==
+
+const PASS = [
+    { name: "МИФИЧЕСКИЕ ЗВЕРИ", id: 12025 },      { name: "ЕГИПЕТ", id: 12053 },
+    { name: "ТЁМНОЕ ФЭНТЕЗИ", id: 12119 },        { name: "ГОБЛИНКОР", id: 12335 },
+    { name: "САМОЦВЕТЫ", id: 12389 },             { name: "МОРСКИЕ ГЛУБИНЫ", id: 12427 },
+    { name: "ДОЛИНА ГРЁЗ", id: 12468 },           { name: "ОТТЕПЕЛЬ", id: 12524 },
+    { name: "КОСМОС", id: 12604 },                { name: "СТИМПАНК", id: 12967 },
+    { name: "ЯПОНИЯ", id: 13571 },                { name: "ДЖУНГЛИ", id: 13742 },
+    { name: "ПИРАТЫ", id: 100000 },               { name: "ПРАЗДНИК УРОЖАЯ", id: 100494 },
+    { name: "МАСКАРАД", id: 100634 },             { name: "ДИКИЙ ЗАПАД", id: 100929 },
+    { name: "ЗИМНЯЯ СКАЗКА", id: 101431 },        { name: "ТЁМНЫЕ ПРОРОЧЕСТВА", id: 101970 },
+    { name: "ПЕРВОБЫТНЫЙ МИР", id: 102899 },      { name: "МГНОВЕНИЯ ВЕСНЫ", id: 103309 },
+    { name: "ПУТЕШЕСТВИЕ В КОСМОС", id: 103644 }, { name: "КИБЕРПАНК", id: 103813 },
+    { name: "В ПОКОЯХ ЛЕСА", id: 104273 },        { name: "СЕРДЦЕ ПУСТЫНИ", id: 104575 },
+    { name: "ДРЕВНЯЯ ГРЕЦИЯ", id: 105322 },
+];
+
+const PASS_PASS = {
+    PASS: {
+        ids: [
+            [12025,12041],[12049],[12053,12106],[12119,12143],[12173,12232],[12260,12301],
+            [12305,12307],[12311,12319],[12338,12340],[12344,12346],[12362,12396],[12415,12417],
+            [12421,12434],[12441,12446],[12457,12466],[12468,12496],[12500,12517],[12524,12533],
+            [12599,12601],[12604,12687],[12693,12696],[12933,12941],[12948],[12967,13002],
+            [13031,13056],[13087,13392],[13571,13611],[13639,13650],[13657,13676],[13681,13728],
+            [13742,13767],[13787,13794],[13830,13841],[13856,13865],[14097,14117],[14120,14121],
+            [100000,100065],[100080,100135],[100444,100452],[100485,100515],[100557],[100588,100592],
+            [100599,100604],[100610,100614],[100679,100688],[100774,100778],[100843,100848],[100857,100928],
+            [101004,101242],[101309,101321],[101376,101402],[101431,101572],[101705,101712],[101843,101863],
+            [101960,102147],[102319,102346],[102644,102676],[102874,102878],[102899,103131],[103199,103206],
+            [103213,103218],[103265,103271],[103279,103283],[103309,103380],[103388,103472],[103644,103645],
+            [103662,103669],[103689,103697],[103711,103738],[103782,103812],[103933,103950],[104039,104044],
+            [104066,104068],[104074,104081],[104092,104333],[104373,104402],[104418,104450],[104515,104630],
+            [104951,105036],[105107,105171],[105212,105242],[105285,105300],[105317,105449],[105770,105860],
+            [105880,106313],[106316,106509],[106520,106575]
+        ].flatMap(([a,b=a])=>Array.from({length:b-a+1},(_,i)=>a+i)),
+        color: '#752424bd', bgColor: '#914f4f38', label: 'В ПРОПУСКЕ'
+    }
+};
+
+const COSTUME_COLLECTIONS = {
+    DE: { ids: [916, 917, 918, 919], color: '#4b2475c7', bgColor: '#83766740', label: 'ДС / СС' },
+    MANUSCRIPT: { ids: [9126, 9127, 9128, 9129, 9130, 9131, 9132, 9133, 9134, 9135, 9136, 9137], color: '#247544c7', bgColor: '#83766740', label: 'МАНУСКРИПТ' },
+    CAULDRON: { ids: [1750, 1751, 1752, 1753, 1754, 1755, 1756, 1757, 1758, 1759, 1760, 1761, 1762, 1763, 1764, 1765, 1766, 1767, 1768, 1769], color: '#247544c7', bgColor: '#83766740', label: 'КОТЁЛ' },
+    IR: { ids: [7125, 7126, 7127, 7128, 7129, 7130, 7131, 7132], color: '#246e75c7', bgColor: '#83766740', label: 'ЛЕДЯНАЯ РОЗА' },
+    NY_CARD: { ids: [1945, 1946, 1948, 1949, 1950, 1951, 1952, 2102, 2105, 2111, 2115, 2116, 2118, 2123], color: '#242675c7', bgColor: '#83766740', label: 'НОВОГОДНЯЯ ОТКРЫТКА (ДО ID 2123)' },
+    NY_SPIRITS_2022: { ids: [7120, 7121, 7122, 7123, 7124], color: '#247566c7', bgColor: '#83766740', label: 'ДУХИ НОВОГО ГОДА 2022' },
+    CHARMS: { ids: [3140, 3137, 3139, 3138], color: '#755524c7', bgColor: '#83766740', label: 'ОБЕРЕГИ' },
+    SPHERES: { ids: [93, 94, 95, 96, 97], color: '#752460c7', bgColor: '#83766740', label: 'СФЕРЫ' },
+    DESIGN: { ids: [7100, 7101, 7102, 7105, 7106, 7107, 7110, 7111, 7112, 7115], color: '#756724c7', bgColor: '#83766740', label: 'КОСТЮМЫ ЗА ДИЗАЙН' },
+    MERCHANT: { ids: [4000, 4001, 4002, 4003, 4004, 4005, 4006, 4007, 4008, 4009, 4010, 4011, 4012, 4013, 4014, 4015, 4016, 4017, 4018, 4019, 4020], color: '#612475c7', bgColor: '#83766740', label: 'ТОРГОВЦЫ (ВТ)' },
+    RARE_BUFFS: { ids: [1729, 1730, 1731, 1732, 1733, 1734, 1735, 1736, 1737, 1738, 1739, 1740, 1741, 1742, 1743, 1744, 1745, 1746, 1747, 1748], color: '#752451c7', bgColor: '#83766740', label: 'РЕДКИЕ БАФФЫ' },
+    CLIMING: { ids: [795], color: '#595959c7', bgColor: '#83766740', label: 'ПЕРЕПЛЕТЕНИЕ ВЕТВЕЙ И ПЕРЬЕВ' },
+    DIVING: { ids: [144, 142, 143, 141], color: '#245075c7', bgColor: '#83766740', label: 'КОСТЮМЫ С НЫРКОВ' },
+    COLLARS: { ids: [955, 956, 957, 958, 959, 960, 961, 962, 964, 965, 967], color: '#246675c7', bgColor: '#83766740', label: 'ОШЕЙНИКИ ДОМАШНИХ' },
+    VT: { ids: [997, 998, 999, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1023, 1024, 1025, 1026, 1027], color: '#247541c7', bgColor: '#83766740', label: 'ДУХИ (ВТ)' },
+    SHARD: { ids: [2093], color: '#595959c7', bgColor: '#83766740', label: 'ОСКОЛОК (СТАРЫЙ КВЕСТ ВТ)' },
+    AMBER: { ids: [2183], color: '#595959c7', bgColor: '#83766740', label: 'УГОЛЬ (КВЕСТ ВТ)' }
+};
+
+const THEMES = {
+    dark: {
+        gold: '#a29b8b', goldDim: '#7a6230', bg: '#1d1c19', panel: '#2d2b28',
+        glass: 'rgba(255,255,255,0.03)', border: '#3c3932', borderHi: 'rgba(201,168,76,0.7)',
+        text: '#e8dfc8', muted: '#998e7c', red: '#8b2020', shadow: 'rgba(0,0,0,.6)',
+        labelBg: 'rgba(0,0,0,.65)', thumbHoverBg: 'rgba(201,168,76,0.06)',
+    },
+    light: {
+        gold: '#695d45', goldDim: '#c9a84c', bg: '#d7d3c8', panel: '#cbc5b8',
+        glass: 'rgba(0,0,0,0.03)', border: '#b4ab9b', borderHi: 'rgba(154,110,26,0.75)',
+        text: '#2c2416', muted: '#5e5645', red: '#b03030', shadow: 'rgba(0,0,0,.18)',
+        labelBg: '#dfd8cf', thumbHoverBg: 'rgba(154,110,26,0.07)',
+    }
+};
+
+let currentTheme = localStorage.getItem('wd-theme') || 'dark';
+let catAge = parseInt(localStorage.getItem('wd-cat-age') || '0', 10);
+let C = { ...THEMES[currentTheme] };
+let DEFAULT_MODEL_URL = '';
+let layerCounter = 0;
+let pendingUrl = { model: null, costume: null };
+let searchStartID = 1;
+let searchItemsPerPage = 40;
+let activeLayers = [];
+
+function getCostumeUrl(idOrUrl, age = catAge) {
+    if (typeof idOrUrl === 'number' || /^\d+$/.test(idOrUrl)) {
+        return `/cw3/cats/${age}/costume/${idOrUrl}.png`;
+    }
+    return idOrUrl.replace(/\/cw3\/cats\/(-?\d+)\//, `/cw3/cats/${age}/`);
+}
+
+function saveState() {
+    const layers = Array.from(document.querySelectorAll('.costume-controller')).map(ctrl => {
+        const id = ctrl.dataset.layerId;
+        const l = activeLayers.find(x => x.id === id);
+        return l ? { url: l.url, hidden: l.hidden } : null;
+    }).filter(Boolean);
+
+    const state = {
+        model: document.getElementById('player-model')?.src || DEFAULT_MODEL_URL,
+        layers: layers
+    };
+    localStorage.setItem('wd-state', JSON.stringify(state));
+}
+
+function restoreSavedState() {
+    try {
+        const state = JSON.parse(localStorage.getItem('wd-state'));
+        if (state) {
+            if (state.model) changeModel(state.model, true);
+            if (state.layers) {
+                [...state.layers].reverse().forEach(l => addCostumeLayer(l.url, l.hidden, true));
+            }
+        }
+    } catch(e) {}
+}
+
+function applyTheme(theme) {
+    currentTheme = theme;
+    C = { ...THEMES[theme] };
+    localStorage.setItem('wd-theme', theme);
+    rebuildPanel();
+}
+
+function toggleCatAge() {
+    catAge = catAge === 0 ? -1 : 0;
+    localStorage.setItem('wd-cat-age', catAge);
+    activeLayers = activeLayers.map(l => {
+        const costumeID = l.url.match(/costume\/(\d+)\.png/)?.[1];
+        if (costumeID) {
+            const newUrl = getCostumeUrl(costumeID, catAge);
+            const imgEl = document.getElementById(l.id);
+            if (imgEl) imgEl.src = newUrl;
+            const ctrlEl = document.querySelector(`.costume-controller[data-layer-id="${l.id}"] div[style*="background-image"]`);
+            if (ctrlEl) ctrlEl.style.backgroundImage = `url('${newUrl}')`;
+            return { ...l, url: newUrl };
+        }
+        return l;
+    });
+    saveState();
+    rebuildPanel();
+}
+
+function injectStyles() {
+    const style = document.createElement('style');
+    style.id = 'wd-style';
+    style.textContent = `
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Jost:wght@300;400&display=swap');
+        #try-on-panel-wrapper * { font-family: 'Jost', sans-serif; }
+        #try-on-panel-wrapper h2, #try-on-panel-wrapper .wd-title { font-family: 'Cinzel', serif; }
+        #try-on-panel-wrapper input:focus { border-color: ${C.gold} !important; outline: none; }
+        #try-on-panel-wrapper button:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; }
+        .sortable-ghost { opacity: .4; background: ${C.glass}; border-radius: 2px; }
+        @keyframes wd-fade-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+        #try-on-panel-content { animation: wd-fade-in .25s ease; }
+        #wd-theme-toggle, #wd-age-toggle {
+            border: 2px solid ${C.gold}; color: ${C.gold};
+            font-size: 13px; cursor: pointer; padding: 3px 8px; border-radius: 50px;
+            transition: border-color .15s, color .15s; line-height: 1.4; flex-shrink: 0; font-family: inherit; font-weight: 600;
+        }
+        #wd-theme-toggle:hover, #wd-age-toggle:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; background-color: ${C.bg} !important; }
+        @media (max-width: 768px) {
+            .w-flex { flex-direction: column !important; align-items: stretch !important; }
+            #control-col { margin-right: 0 !important; margin-bottom: 20px !important; }
+            .s-ctrl { flex-direction: column !important; gap: 8px !important; }
+            .s-ctrl > * { width: 100% !important; box-sizing: border-box; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+const thumbCSS = (url, h, isApplied = false) =>
+    `width:100%;height:${h};background:url('${url}') center/contain no-repeat;` +
+    `cursor:pointer;border:1px solid ${isApplied ? C.gold : C.border};border-radius:2px;box-sizing:border-box;` +
+    `transition:border-color .15s,background-color .15s;`;
+
+function loaderHTML(type, title, withRestore) {
+    const inputS = `padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};` +
+        `border-radius:2px;font-size:14px;box-sizing:border-box;outline:none;font-family:inherit;`;
+    const btnS = col => `width:100%;padding:5px 8px;background:${col};color:${C.text};border:1px solid ${C.border};` +
+        `border-radius:2px;cursor:pointer;font-size:14px;letter-spacing:.06em;font-family:inherit;transition:border-color .15s,color .15s;`;
+
+    return `
+        <div style="margin-bottom:6px;order:${type === 'model' ? 3 : 4};">
+            <div id="${type}-loader-header" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:6px 0;border-top:1px solid ${C.border};">
+                <span style="font-size:12px;font-weight:bolder;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;">${title}</span>
+                <button id="${type}-loader-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:12px;cursor:pointer;padding:0;">▸</button>
+            </div>
+            <div id="${type}-loader-content" style="display:none;padding:6px 0;">
+                <div style="display:flex;gap:4px;margin-bottom:5px;">
+                    <input type="text" id="${type}-url-input" placeholder="URL изображения" style="${inputS} width:100%; margin-bottom:0;">
+                    <button id="${type}-url-ok-btn" style="${btnS(C.glass)} width:auto;padding:5px 12px;font-weight:bold;">ОК</button>
+                </div>
+                <input type="file" id="${type}-file-input" style="display:none;" accept="image/png,image/jpeg">
+                <button id="${type}-select-file-btn" style="${btnS(C.glass)} margin-bottom:4px;">выбрать файл</button>
+                ${withRestore ? `<button id="restore-model-btn" style="${btnS(C.glass)}">вернуть оригинал</button>` : ''}
+                ${type === 'model' ? `<div id="wd-saved-models-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:6px;"></div>` : ''}
+            </div>
+        </div>`;
+}
+
+function renderSavedModels() {
+    const grid = document.getElementById('wd-saved-models-grid');
+    if (!grid) return;
+    const models = JSON.parse(localStorage.getItem('wd-models') || '[]');
+    grid.innerHTML = '';
+    models.forEach(url => {
+        const thumb = document.createElement('div');
+        thumb.style.cssText = thumbCSS(url, '45px') + `position:relative;`;
+        thumb.addEventListener('click', () => changeModel(url));
+
+        const del = document.createElement('button');
+        del.textContent = '✕';
+        del.style.cssText = `position:absolute;top:0;right:0;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:9px;padding:2px 4px;cursor:pointer;line-height:1;border-bottom-left-radius:3px;`;
+        del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let m = JSON.parse(localStorage.getItem('wd-models') || '[]');
+            m = m.filter(x => x !== url);
+            localStorage.setItem('wd-models', JSON.stringify(m));
+            renderSavedModels();
+        });
+        thumb.appendChild(del);
+        grid.appendChild(thumb);
+    });
+}
+
+function buildPanelInnerHTML(modelSrc) {
+    const quickBtns = PASS.map(cat =>
+        `<button onclick="document.getElementById('search-start-id-input').value='${cat.id}';document.getElementById('search-range-btn').click();"
+            style="padding:3px 8px;font-size:14px;letter-spacing:.08em;background:${C.glass};color:${C.muted};border:1px solid ${C.border};border-radius:2px;cursor:pointer;transition:border-color .15s,color .15s;font-family:inherit;">
+            ${cat.name}</button>`
+    ).join('');
+
+    const collectionBtns = Object.entries(COSTUME_COLLECTIONS).map(([key, data]) =>
+        `<button onclick="document.getElementById('search-start-id-input').value='${data.ids[0]}';document.getElementById('search-range-btn').click();"
+            style="padding:3px 8px;font-size:14px;letter-spacing:.08em;background:${C.glass};color:${C.muted};border:1px solid ${C.border};border-radius:2px;cursor:pointer;transition:border-color .15s,color .15s;font-family:inherit;">
+            ${data.label}</button>`
+    ).join('');
+
+    return `
+        <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold},transparent);"></div>
+        <div id="main-panel-header" style="display:flex;align-items:center;cursor:pointer;padding:14px 0;gap:12px;">
+            <button id="main-panel-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:16px;cursor:pointer;padding:0;line-height:1;transition:transform .2s;">▸</button>
+            <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
+            <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <button id="wd-age-toggle">${catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК'}</button>
+                <button id="wd-theme-toggle" title="${currentTheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}">${currentTheme === 'dark' ? '☀' : '☾'}</button>
+            </div>
+        </div>
+        <div id="try-on-panel-content" style="display:none;flex-direction:column;padding-bottom:20px;">
+            <div class="w-flex" style="display:flex;align-items:flex-start;gap:24px;">
+                <div id="control-col" style="display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;width:190px;">
+                    <div style="text-align:center;margin-bottom:16px;">
+                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
+                        <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 30px;transform:scale(1.4);transform-origin:center;">
+                            <img id="player-model" src="${modelSrc}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
+                        </div>
+                        <div style="display:flex;gap:6px;padding-top: 6px;">
+                            <button id="save-preview-100" title="Сохранить 100×150"
+                                style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
+                                ⭳ 100×150</button>
+                            <button id="save-preview-200" title="Сохранить 200×300"
+                                style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
+                                ⭳ 200×300</button>
+                        </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;">
+                        ${loaderHTML('model', 'Заменить модель', true)}
+                        ${loaderHTML('costume', 'Загрузить костюм', false)}
+                    </div>
+                    <div style="margin-top:10px;">
+                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:6px;text-transform:uppercase;">слои</div>
+                        <div id="try-on-controller-panel" style="max-height:320px;overflow-y:auto;padding:4px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                            <p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex-grow:1;min-width:0;">
+                    <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:8px;text-transform:uppercase;">костюмы на странице</div>
+                    <div id="try-on-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:3px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                </div>
+            </div>
+            <div style="margin-top:20px;border-top:4px solid ${C.border};padding-top:14px;">
+                <div id="costume-search-header" style="display:flex;align-items:center;background:linear-gradient(to right,${C.border} 0%,transparent 100%);padding:10px;font-weight:600;border-radius:15px;cursor:pointer;gap:10px;margin-bottom:4px;">
+                    <button id="costume-search-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:14px;cursor:pointer;padding:0;line-height:1;">▸</button>
+                    <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
+                </div>
+                <div id="costume-search-content" style="display:none;padding-top:12px;">
+                    <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+                        <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;">ПРОПУСКИ</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                            ${quickBtns}
+                        </div>
+                        <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;margin-top:4px;">ДРУГИЕ КОСТЮМЫ</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                            ${collectionBtns}
+                        </div>
+                    </div>
+                    <div class="s-ctrl" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                        <span style="font-size:12px;letter-spacing:.08em;color:${C.muted};white-space:nowrap;">ID от:</span>
+                        <input type="text" id="search-start-id-input" placeholder="число"
+                            style="width:80px;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:2px;font-size:12px;font-family:inherit;box-sizing:border-box;">
+                        <button id="search-range-btn"
+                            style="padding:5px 14px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:10px;letter-spacing:.1em;font-family:inherit;transition:border-color .15s,color .15s;">
+                            НАЙТИ</button>
+                    </div>
+                    <div class="s-ctrl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        <button id="prev-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8592;</button>
+                        <span id="current-id-display" style="font-size:12px;letter-spacing:.1em;color:${C.muted};">1 — 40</span>
+                        <button id="next-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8594;</button>
+                    </div>
+                    <div id="costume-search-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function gridCols(panelId, minW, gap, fallback) {
+    const el = document.getElementById(panelId);
+    if (!el) return 1;
+    return Math.max(1, Math.floor(((el.clientWidth || el.offsetWidth || fallback) + gap) / (minW + gap)));
+}
+
+function updateLayerOrder() {
+    const layers = document.getElementById('try-on-controller-panel')?.querySelectorAll('.costume-controller');
+    if (!layers) return;
+    layers.forEach((ctrl, i) => {
+        const img = document.getElementById(ctrl.dataset.layerId);
+        if (img) img.style.zIndex = 1000 + (layers.length - i) * 10;
+    });
+}
+
+function removeLayer(id) {
+    document.getElementById(id)?.remove();
+    document.querySelector(`.costume-controller[data-layer-id="${id}"]`)?.remove();
+    activeLayers = activeLayers.filter(l => l.id !== id);
+    updateLayerOrder();
+    refreshThumbnails();
+    saveState();
+    const panel = document.getElementById('try-on-controller-panel');
+    if (panel?.children.length === 0)
+        panel.innerHTML = `<p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>`;
+}
+
+function refreshThumbnails() {
+    const sp = document.getElementById('costume-search-thumbnails');
+    if (sp && sp.children.length > 0) {
+        const searchContent = document.getElementById('costume-search-content');
+        const isSearchVisible = searchContent && searchContent.style.display !== 'none';
+        if (isSearchVisible) {
+            updateSearchDisplay(searchStartID);
+        } else {
+            sp.innerHTML = '';
+        }
+    }
+    const pageThumbnails = document.querySelectorAll('#try-on-thumbnails > div');
+    if (pageThumbnails.length > 0) {
+        const costumeUrls = [];
+        document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
+            const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+            if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
+        });
+        buildPageGrid(costumeUrls);
+    }
+}
+
+function getOrderedLayerImages() {
+    const container = document.querySelector('#try-on-panel-content .try-on-container');
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('img'))
+        .filter(img => img.complete && img.naturalWidth > 0 && img.style.display !== 'none')
+        .sort((a, b) => (parseInt(a.style.zIndex) || 0) - (parseInt(b.style.zIndex) || 0));
+}
+
+function exportPreview(width, height) {
+    const layers = getOrderedLayerImages();
+    if (!layers.length) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    layers.forEach(img => ctx.drawImage(img, 0, 0, width, height));
+
+    canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `wardrobe_${width}x${height}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }, 'image/png');
+}
+
+function changeModel(url, skipSave = false) {
+    const img = document.getElementById('player-model');
+    if (!img || !url) return;
+    img.src = url;
+    document.getElementById('model-url-input').value = '';
+    document.getElementById('model-file-input').value = '';
+    pendingUrl.model = null;
+
+    if (url !== DEFAULT_MODEL_URL && !url.includes('/cw3/composited/')) {
+        let models = JSON.parse(localStorage.getItem('wd-models') || '[]');
+        if (!models.includes(url)) {
+    models.push(url);
+    localStorage.setItem('wd-models', JSON.stringify(models));
+    renderSavedModels();
+}
+    }
+
+    if (!skipSave) saveState();
+}
+
+function renderCostumeLayer(id, url, hidden, container, panel) {
+    panel.querySelector('p')?.remove();
+
+    const img = document.createElement('img');
+    img.id = id;
+    img.src = url;
+    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:100;display:${hidden ? 'none' : 'block'};`;
+    container.appendChild(img);
+
+    const costumeID = url.match(/costume\/(\d+)\.png/)?.[1] ?? '—';
+    const ctrl = document.createElement('div');
+    ctrl.className = 'costume-controller';
+    ctrl.dataset.layerId = id;
+    ctrl.style.cssText =
+        `display:flex;align-items:center;gap:6px;border:1px solid ${C.border};border-radius:3px;` +
+        `padding:5px 6px;margin-bottom:4px;background:${C.glass};font-size:12px;cursor:move;transition:border-color .15s;opacity:${hidden ? '0.6' : '1'};`;
+
+    ctrl.innerHTML = `
+        <div style="width:24px;height:24px;flex-shrink:0;background:url('${url}') center/contain no-repeat;border:1px solid ${C.border};border-radius:2px;"></div>
+        <span style="flex-grow:1;color:${C.text};letter-spacing:.04em;user-select:none;">ID ${costumeID}</span>
+        <button class="toggle-vis-btn" data-layer-id="${id}" title="Скрыть/показать"
+            style="background:${C.glass};color:${C.text};border:1px solid ${C.border};width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">${hidden ? '—' : '👁'}</button>
+        <button class="remove-layer-btn" data-layer-id="${id}" title="Удалить"
+            style="background:${C.red};color:#fff;border:none;width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">✕</button>
+    `;
+
+    ctrl.addEventListener('mouseenter', () => ctrl.style.borderColor = C.goldDim);
+    ctrl.addEventListener('mouseleave', () => ctrl.style.borderColor = C.border);
+
+    ctrl.querySelector('.toggle-vis-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        const layer = activeLayers.find(l => l.id === id);
+        if (layer) {
+            layer.hidden = !layer.hidden;
+            img.style.display = layer.hidden ? 'none' : 'block';
+            e.target.textContent = layer.hidden ? '—' : '👁';
+            ctrl.style.opacity = layer.hidden ? '0.6' : '1';
+            saveState();
+        }
+    });
+
+    ctrl.querySelector('.remove-layer-btn').addEventListener('click', e => { e.stopPropagation(); removeLayer(id); });
+    panel.prepend(ctrl);
+}
+
+function addCostumeLayer(url, hidden = false, skipSave = false) {
+    const normalizedUrl = getCostumeUrl(url, catAge);
+    if (!normalizedUrl || normalizedUrl.includes('/cw3/composited/')) return;
+    const id = `costume-layer-${++layerCounter}`;
+    const container = document.querySelector('#try-on-panel-content .try-on-container');
+    const panel = document.getElementById('try-on-controller-panel');
+    if (!container || !panel) return;
+
+    activeLayers.unshift({ id, url: normalizedUrl, hidden });
+    renderCostumeLayer(id, normalizedUrl, hidden, container, panel);
+    updateLayerOrder();
+    refreshThumbnails();
+
+    if (!skipSave) saveState();
+}
+
+function toggleCostume(url) {
+    const normalizedUrl = getCostumeUrl(url, catAge);
+    const costumeID = normalizedUrl.match(/costume\/(\d+)\.png/)?.[1];
+    const existing = activeLayers.find(l => {
+        const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+        return id && costumeID && id === costumeID;
+    });
+    if (existing) {
+        removeLayer(existing.id);
+    } else {
+        addCostumeLayer(normalizedUrl);
+    }
+}
+
+function handleFileSelect(e, type) {
+    const file = e.target.files[0];
+    if (!file || !['image/png', 'image/jpeg'].includes(file.type)) return;
+    const reader = new FileReader();
+    reader.onload = ev => { pendingUrl[type] = ev.target.result; handleLoad(type); };
+    reader.readAsDataURL(file);
+}
+
+function handleLoad(type) {
+    const url = pendingUrl[type] || document.getElementById(`${type}-url-input`)?.value;
+    if (!url) return;
+    if (type === 'model') {
+        changeModel(url);
+    } else {
+        addCostumeLayer(url);
+        pendingUrl.costume = null;
+        document.getElementById('costume-file-input').value = '';
+        document.getElementById('costume-url-input').value = '';
+    }
+}
+
+function togglePanel(id) {
+    const content = document.getElementById(`${id}-content`);
+    const arrow = document.getElementById(`${id}-toggle-btn`);
+    if (!content || !arrow) return;
+    const open = content.style.display === 'none' || content.style.display === '';
+    content.style.display = open ? 'block' : 'none';
+    arrow.textContent = open ? '▾' : '▸';
+    if (open && id === 'costume-search' && !document.getElementById('costume-search-thumbnails').children.length)
+        updateSearchDisplay(searchStartID);
+
+    if (open && id === 'model-loader') renderSavedModels();
+}
+
+function updateSearchDisplay(startId) {
+    const panel = document.getElementById('costume-search-thumbnails');
+    if (!panel) return;
+    const cols = gridCols('costume-search-thumbnails', 100, 4, 600);
+    searchItemsPerPage = cols * 5;
+    searchStartID = Math.max(1, startId);
+    panel.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    panel.innerHTML = '';
+    for (let i = 0; i < searchItemsPerPage; i++) {
+        const costumeID = searchStartID + i;
+        const url = getCostumeUrl(costumeID, catAge);
+
+        let collection = null;
+        for (const [name, data] of Object.entries({ ...COSTUME_COLLECTIONS, ...PASS_PASS })) {
+            if (data.ids.includes(costumeID)) {
+                collection = { name, ...data };
+                break;
+            }
+        }
+
+        const isApplied = activeLayers.some(l => {
+            const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+            return id && parseInt(id, 10) === costumeID;
+        });
+        const borderColor = isApplied ? C.gold : C.border;
+        const defaultBg = collection ? collection.bgColor : C.glass;
+
+        const thumb = document.createElement('div');
+        thumb.style.cssText = thumbCSS(url, '150px', isApplied) + `position:relative;background-color:${defaultBg};overflow:hidden;`;
+
+        const label = document.createElement('div');
+        label.style.cssText = `position:absolute;bottom:0;left:0;width:100%;background:${C.labelBg};color:${C.muted};font-size:11px;text-align:center;padding:2px 0;`;
+        label.textContent = costumeID;
+        thumb.appendChild(label);
+
+        if (collection) {
+            const collectionLabel = document.createElement('div');
+            collectionLabel.style.cssText = `position:absolute;top:2px;left:50%;transform:translateX(-50%);background:${collection.color};color:#fff;font-size:9px;text-align:center;padding:1px 6px;font-weight:bold;z-index:2;border-radius:3px;white-space:normal;word-break:break-word;width:90%;`;
+            collectionLabel.textContent = collection.label;
+            thumb.appendChild(collectionLabel);
+        }
+
+        thumb.addEventListener('click', () => toggleCostume(url));
+        thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
+        thumb.addEventListener('mouseleave', () => {
+            const currentlyApplied = activeLayers.some(l => {
+                const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+                return id && parseInt(id, 10) === costumeID;
+            });
+            thumb.style.borderColor = currentlyApplied ? C.gold : C.border;
+            thumb.style.backgroundColor = defaultBg;
+        });
+        panel.appendChild(thumb);
+    }
+    document.getElementById('current-id-display').textContent = `${searchStartID} — ${searchStartID + searchItemsPerPage - 1}`;
+}
+
+function handleSearchRange() {
+    const raw = parseInt(document.getElementById('search-start-id-input').value.replace(/\D/g, ''), 10) || 1;
+    updateSearchDisplay(Math.max(1, Math.floor((raw - 1) / searchItemsPerPage) * searchItemsPerPage + 1));
+}
+
+function navigateSearch(dir) {
+    updateSearchDisplay(Math.max(1, searchStartID + dir * searchItemsPerPage));
+}
+
+function buildPageGrid(costumeUrls) {
+    const panel = document.getElementById('try-on-thumbnails');
+    if (!panel) return;
+    const cols = gridCols('try-on-thumbnails', 50, 3, 400);
+    panel.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    panel.innerHTML = '';
+
+    costumeUrls.forEach(rawUrl => {
+        const url = getCostumeUrl(rawUrl, catAge);
+        const costumeID = url.match(/costume\/(\d+)\.png/)?.[1];
+        const isApplied = costumeID && activeLayers.some(l => {
+            const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+            return id && id === costumeID;
+        });
+
+        const thumb = document.createElement('div');
+        thumb.style.cssText = thumbCSS(url, '75px', isApplied) + `background-color:${C.glass};`;
+        thumb.addEventListener('click', () => toggleCostume(url));
+        thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
+        thumb.addEventListener('mouseleave', () => {
+            const currentlyApplied = costumeID && activeLayers.some(l => {
+                const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+                return id && id === costumeID;
+            });
+            thumb.style.borderColor = currentlyApplied ? C.gold : C.border;
+            thumb.style.backgroundColor = C.glass;
+        });
+        panel.appendChild(thumb);
+    });
+
+    const rem = costumeUrls.length % cols;
+    if (rem) for (let i = 0; i < cols - rem; i++) {
+        const ghost = document.createElement('div');
+        ghost.style.cssText = `width:100%;height:75px;box-sizing:border-box;`;
+        panel.appendChild(ghost);
+    }
+}
+
+function bindPanelEvents(costumeUrls) {
+    document.getElementById('model-loader-header').addEventListener('click', () => togglePanel('model-loader'));
+    document.getElementById('costume-loader-header').addEventListener('click', () => togglePanel('costume-loader'));
+    document.getElementById('costume-search-header').addEventListener('click', () => togglePanel('costume-search'));
+
+    if (document.getElementById('restore-model-btn')) {
+        document.getElementById('restore-model-btn').addEventListener('click', () => changeModel(DEFAULT_MODEL_URL));
+    }
+
+    document.getElementById('save-preview-100').addEventListener('click', () => exportPreview(100, 150));
+    document.getElementById('save-preview-200').addEventListener('click', () => exportPreview(200, 300));
+    document.getElementById('search-range-btn').addEventListener('click', handleSearchRange);
+    document.getElementById('prev-page-btn').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('next-page-btn').addEventListener('click', () => navigateSearch(1));
+
+    const navBtnHover = id => {
+        const el = document.getElementById(id);
+        el.addEventListener('mouseenter', () => el.style.color = C.gold);
+        el.addEventListener('mouseleave', () => el.style.color = C.muted);
+    };
+    navBtnHover('prev-page-btn');
+    navBtnHover('next-page-btn');
+
+    ['model', 'costume'].forEach(type => {
+        document.getElementById(`${type}-select-file-btn`).addEventListener('click', () => document.getElementById(`${type}-file-input`).click());
+        document.getElementById(`${type}-file-input`).addEventListener('change', e => handleFileSelect(e, type));
+        document.getElementById(`${type}-url-input`).addEventListener('keydown', e => { if (e.key === 'Enter') handleLoad(type); });
+        document.getElementById(`${type}-url-ok-btn`).addEventListener('click', () => handleLoad(type));
+    });
+
+    document.getElementById('main-panel-header').addEventListener('click', e => {
+        if (e.target.closest('#wd-theme-toggle') || e.target.closest('#wd-age-toggle')) return;
+        const content = document.getElementById('try-on-panel-content');
+        const wrapper = document.getElementById('try-on-panel-wrapper');
+        const toggleBtn = document.getElementById('main-panel-toggle-btn');
+        const open = content.style.display === 'none';
+        content.style.display = open ? 'flex' : 'none';
+        toggleBtn.textContent = open ? '▾' : '▸';
+        toggleBtn.style.transform = open ? 'rotate(0deg)' : '';
+        wrapper.style.paddingBottom = open ? '20px' : '0';
+    });
+
+    document.getElementById('wd-theme-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    });
+
+    document.getElementById('wd-age-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleCatAge();
+    });
+
+    requestAnimationFrame(() => buildPageGrid(costumeUrls));
+
+    new ResizeObserver(() => {
+        buildPageGrid(costumeUrls);
+        const sp = document.getElementById('costume-search-thumbnails');
+        if (sp?.children.length) updateSearchDisplay(searchStartID);
+    }).observe(document.getElementById('try-on-thumbnails'));
+
+    const initSortable = () => new Sortable(document.getElementById('try-on-controller-panel'), {
+        animation: 150, ghostClass: 'sortable-ghost',
+        onEnd: () => { updateLayerOrder(); saveState(); }
+    });
+
+    if (window.Sortable) {
+        initSortable();
+    } else if (!document.querySelector('script[src*="sortablejs"]')) {
+        const sortableScript = document.createElement('script');
+        sortableScript.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
+        sortableScript.onload = initSortable;
+        document.head.appendChild(sortableScript);
+    }
+}
+
+function rebuildPanel() {
+    const wrapper = document.getElementById('try-on-panel-wrapper');
+    if (!wrapper) return;
+
+    const wasOpen     = document.getElementById('try-on-panel-content')?.style.display !== 'none';
+    const searchOpen  = document.getElementById('costume-search-content')?.style.display !== 'none';
+    const modelOpen   = document.getElementById('model-loader-content')?.style.display !== 'none';
+    const costumeOpen = document.getElementById('costume-loader-content')?.style.display !== 'none';
+    const modelSrc    = document.getElementById('player-model')?.src ?? DEFAULT_MODEL_URL;
+
+    document.getElementById('wd-style')?.remove();
+    injectStyles();
+
+    wrapper.style.cssText =
+        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
+        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
+        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
+        `position:relative;overflow:hidden;`;
+    wrapper.innerHTML = buildPanelInnerHTML(modelSrc);
+
+    const costumeUrls = [];
+    document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
+        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
+    });
+    bindPanelEvents(costumeUrls);
+
+    if (wasOpen) {
+        document.getElementById('try-on-panel-content').style.display = 'flex';
+        document.getElementById('main-panel-toggle-btn').textContent = '▾';
+        wrapper.style.paddingBottom = '20px';
+    }
+    if (searchOpen) {
+        document.getElementById('costume-search-content').style.display = 'block';
+        document.getElementById('costume-search-toggle-btn').textContent = '▾';
+        updateSearchDisplay(searchStartID);
+    }
+    ['model', 'costume'].forEach(t => {
+        if (t === 'model' ? modelOpen : costumeOpen) {
+            document.getElementById(`${t}-loader-content`).style.display = 'block';
+            if (t === 'model') renderSavedModels();
+        }
+    });
+
+    if (activeLayers.length) {
+        const container = document.querySelector('#try-on-panel-content .try-on-container');
+        const panel = document.getElementById('try-on-controller-panel');
+        [...activeLayers].reverse().forEach(({ id, url, hidden }) => renderCostumeLayer(id, url, hidden, container, panel));
+        updateLayerOrder();
+    }
+}
+
+function extractModelUrl(firstDiv) {
+    if (firstDiv) {
+        const attr = firstDiv.getAttribute('style') || '';
+        const m = attr.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+        const cm = window.getComputedStyle(firstDiv).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (cm?.[1]) return cm[1];
+    }
+    for (const el of document.querySelectorAll('div[style*="/cw3/composited/"]')) {
+        const m = el.getAttribute('style').match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+    }
+    const comp = document.querySelector('div[style*="composited"]');
+    if (comp) {
+        const m = window.getComputedStyle(comp).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+    }
+    return '';
+}
+
+function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
+    let insertPosition, firstDiv;
+    if (typeof firstDivOrPosition === 'string') {
+        insertPosition = firstDivOrPosition;
+        firstDiv = null;
+    } else {
+        insertPosition = 'afterend';
+        firstDiv = firstDivOrPosition;
+        costumeSourceSelector = 'div[style*="background-image: url"]';
+    }
+
+    const url = extractModelUrl(firstDiv);
+    if (url) DEFAULT_MODEL_URL = url;
+
+    injectStyles();
+
+    const wrapper = document.createElement('div');
+    wrapper.id = 'try-on-panel-wrapper';
+    wrapper.style.cssText =
+        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
+        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
+        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
+        `position:relative;overflow:hidden;`;
+
+    if (insertPosition === 'afterend') {
+        anchorEl.insertAdjacentElement('afterend', document.createElement('hr'));
+        anchorEl.insertAdjacentElement('afterend', wrapper);
+    } else {
+        anchorEl.insertAdjacentHTML(insertPosition, wrapper.outerHTML + '<hr>');
+    }
+
+    document.getElementById('try-on-panel-wrapper').innerHTML = buildPanelInnerHTML(DEFAULT_MODEL_URL);
+
+    const costumeUrls = [];
+    document.querySelectorAll(costumeSourceSelector).forEach(icon => {
+        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
+    });
+
+    bindPanelEvents(costumeUrls);
+    restoreSavedState();
+}
+
+(function () {
+    const isSettingsCostumes = /\/settings_costumes/.test(location.pathname);
+
+    if (isSettingsCostumes) {
+        const tryInsert = () => {
+            if (document.getElementById('try-on-panel-wrapper')) return true;
+            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
+            if (!col3) return false;
+            const firstDiv =
+                col3.querySelector('[class="first"]') ||
+                col3.querySelector('[class*="first"]') ||
+                document.querySelector('[data-v-59afe5e8][class="first"]') ||
+                document.querySelector('[class="first"]');
+            if (!firstDiv) return false;
+            injectPanel(col3, firstDiv);
+            return true;
+        };
+
+        if (!tryInsert()) {
+            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+    } else {
+        const mainDiv = document.getElementById('main');
+        if (!mainDiv) return;
+        injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
+    }
+})();
