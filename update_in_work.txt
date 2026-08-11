@@ -912,24 +912,27 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         const tryInsert = () => {
             if (document.getElementById('try-on-panel-wrapper')) return true;
 
-            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]') || document.querySelector('.col-3');
-            if (!col3) return false;
-                        const firstDiv =
-                col3.querySelector('[class="first"]') ||
-                col3.querySelector('[class*="first"]') ||
-                document.querySelector('[data-v-59afe5e8][class="first"]') ||
-                document.querySelector('[class="first"]');
+            const targetParent = document.querySelector('#app') || document.body;
+            if (!targetParent) return false;
 
-            if (firstDiv) {
-                injectPanel(col3, firstDiv);
-            } else {
-                injectPanel(col3, 'afterbegin', 'div[style*="background-image: url"]');
+            const referenceNode = document.querySelector('.first') || document.querySelector('[style*="/cw3/composited/"]') || document.querySelector('button');
+            if (referenceNode) {
+                injectPanel(referenceNode.parentElement || targetParent, referenceNode);
+                return true;
             }
-            return true;
+
+            if (document.body.children.length > 0) {
+                injectPanel(targetParent, 'afterbegin', 'div[style*="background-image: url"]');
+                return true;
+            }
+
+            return false;
         };
 
         if (!tryInsert()) {
-            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
+            const observer = new MutationObserver(() => {
+                if (tryInsert()) observer.disconnect();
+            });
             observer.observe(document.body, { childList: true, subtree: true });
         }
     } else {
