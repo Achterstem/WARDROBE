@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.1.6
+// @version      1.1.5-Merged
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
@@ -10,10 +10,48 @@
 // @match        http*://*.catwar.su/settings_costumes*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
 // @license      MIT
-// @grant        none
-// @downloadURL  https://update.greasyfork.org/scripts/558410/WARDROBE.user.js
-// @updateURL    https://update.greasyfork.org/scripts/558410/WARDROBE.meta.js
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
+// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
 // ==/UserScript==
+
+const appStorage = {
+    useGM: typeof GM_setValue !== "undefined",
+
+    setItem: (key, value) => {
+        const stringValue = JSON.stringify(value);
+        if (appStorage.useGM) {
+            GM_setValue(key, stringValue);
+        } else {
+            localStorage.setItem(key, stringValue);
+        }
+    },
+
+    getItem: (key, defaultValue = null) => {
+        let value = null;
+        if (appStorage.useGM) {
+            value = GM_getValue(key);
+        } else {
+            value = localStorage.getItem(key);
+        }
+
+        try {
+            return value ? JSON.parse(value) : defaultValue;
+        } catch (e) {
+            return value !== null ? value : defaultValue;
+        }
+    },
+
+    removeItem: (key) => {
+        if (appStorage.useGM) {
+            GM_deleteValue(key);
+        } else {
+            localStorage.removeItem(key);
+        }
+    }
+};
 
 const PASS = [
     { name: "МИФИЧЕСКИЕ ЗВЕРИ", id: 12025 },      { name: "ЕГИПЕТ", id: 12053 },
@@ -89,8 +127,8 @@ const THEMES = {
     }
 };
 
-let currentTheme = localStorage.getItem('wd-theme') || 'dark';
-let catAge = parseInt(localStorage.getItem('wd-cat-age') || '0', 10);
+let currentTheme = appStorage.getItem('wd-theme') || 'dark';
+let catAge = parseInt(appStorage.getItem('wd-cat-age', 0), 10);
 let C = { ...THEMES[currentTheme] };
 let DEFAULT_MODEL_URL = '';
 let layerCounter = 0;
@@ -117,12 +155,12 @@ function saveState() {
         model: document.getElementById('player-model')?.src || DEFAULT_MODEL_URL,
         layers: layers
     };
-    localStorage.setItem('wd-state', JSON.stringify(state));
+    appStorage.setItem('wd-state', state);
 }
 
 function restoreSavedState() {
     try {
-        const state = JSON.parse(localStorage.getItem('wd-state'));
+        const state = appStorage.getItem('wd-state');
         if (state) {
             if (state.model) changeModel(state.model, true);
             if (state.layers) {
@@ -135,27 +173,36 @@ function restoreSavedState() {
 function applyTheme(theme) {
     currentTheme = theme;
     C = { ...THEMES[theme] };
-    localStorage.setItem('wd-theme', theme);
+    appStorage.setItem('wd-theme', theme);
     rebuildPanel();
 }
 
 function toggleCatAge() {
     catAge = catAge === 0 ? -1 : 0;
-    localStorage.setItem('wd-cat-age', catAge);
+    appStorage.setItem('wd-cat-age', catAge);
+    const ageToggleBtn = document.getElementById('wd-age-toggle');
+    if (ageToggleBtn) {
+        ageToggleBtn.textContent = catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК';
+    }
+
     activeLayers = activeLayers.map(l => {
         const costumeID = l.url.match(/costume\/(\d+)\.png/)?.[1];
         if (costumeID) {
             const newUrl = getCostumeUrl(costumeID, catAge);
             const imgEl = document.getElementById(l.id);
             if (imgEl) imgEl.src = newUrl;
+
             const ctrlEl = document.querySelector(`.costume-controller[data-layer-id="${l.id}"] div[style*="background-image"]`);
             if (ctrlEl) ctrlEl.style.backgroundImage = `url('${newUrl}')`;
+
             return { ...l, url: newUrl };
         }
         return l;
     });
+
     saveState();
-    rebuildPanel();
+
+    refreshThumbnails();
 }
 
 function injectStyles() {
@@ -219,7 +266,7 @@ function loaderHTML(type, title, withRestore) {
 function renderSavedModels() {
     const grid = document.getElementById('wd-saved-models-grid');
     if (!grid) return;
-    const models = JSON.parse(localStorage.getItem('wd-models') || '[]');
+    const models = appStorage.getItem('wd-models', []);
     grid.innerHTML = '';
     models.forEach(url => {
         const thumb = document.createElement('div');
@@ -231,9 +278,9 @@ function renderSavedModels() {
         del.style.cssText = `position:absolute;top:0;right:0;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:9px;padding:2px 4px;cursor:pointer;line-height:1;border-bottom-left-radius:3px;`;
         del.addEventListener('click', (e) => {
             e.stopPropagation();
-            let m = JSON.parse(localStorage.getItem('wd-models') || '[]');
+            let m = appStorage.getItem('wd-models', []);
             m = m.filter(x => x !== url);
-            localStorage.setItem('wd-models', JSON.stringify(m));
+            appStorage.setItem('wd-models', m);
             renderSavedModels();
         });
         thumb.appendChild(del);
@@ -423,12 +470,12 @@ function changeModel(url, skipSave = false) {
     pendingUrl.model = null;
 
     if (url !== DEFAULT_MODEL_URL && !url.includes('/cw3/composited/')) {
-        let models = JSON.parse(localStorage.getItem('wd-models') || '[]');
+        let models = appStorage.getItem('wd-models', []);
         if (!models.includes(url)) {
-    models.push(url);
-    localStorage.setItem('wd-models', JSON.stringify(models));
-    renderSavedModels();
-}
+            models.push(url);
+            appStorage.setItem('wd-models', models);
+            renderSavedModels();
+        }
     }
 
     if (!skipSave) saveState();
@@ -567,7 +614,6 @@ function updateSearchDisplay(startId) {
             const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
             return id && parseInt(id, 10) === costumeID;
         });
-        const borderColor = isApplied ? C.gold : C.border;
         const defaultBg = collection ? collection.bgColor : C.glass;
 
         const thumb = document.createElement('div');
@@ -707,14 +753,23 @@ function bindPanelEvents(costumeUrls) {
         if (sp?.children.length) updateSearchDisplay(searchStartID);
     }).observe(document.getElementById('try-on-thumbnails'));
 
-    const initSortable = () => new Sortable(document.getElementById('try-on-controller-panel'), {
-        animation: 150, ghostClass: 'sortable-ghost',
-        onEnd: () => { updateLayerOrder(); saveState(); }
-    });
+    const initSortable = () => {
+        const panel = document.getElementById('try-on-controller-panel');
+        if (!panel) return;
 
-    if (window.Sortable) {
-        initSortable();
-    } else if (!document.querySelector('script[src*="sortablejs"]')) {
+        const SortableClass = typeof Sortable !== 'undefined' ? Sortable : (window.Sortable || window.unsafeWindow?.Sortable);
+
+        if (SortableClass) {
+            new SortableClass(panel, {
+                animation: 150, ghostClass: 'sortable-ghost',
+                onEnd: () => { updateLayerOrder(); saveState(); }
+            });
+        }
+    };
+
+    if (document.querySelector('script[src*="sortablejs"]')) {
+        setTimeout(initSortable, 50);
+    } else {
         const sortableScript = document.createElement('script');
         sortableScript.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
         sortableScript.onload = initSortable;
@@ -762,6 +817,7 @@ function rebuildPanel() {
     ['model', 'costume'].forEach(t => {
         if (t === 'model' ? modelOpen : costumeOpen) {
             document.getElementById(`${t}-loader-content`).style.display = 'block';
+
             if (t === 'model') renderSavedModels();
         }
     });
