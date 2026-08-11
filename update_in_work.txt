@@ -904,21 +904,20 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         const tryInsert = () => {
             if (document.getElementById('try-on-panel-wrapper')) return true;
 
-            const col3 = document.querySelector('.col-3') || document.querySelector('#app') || document.body;
-            if (!col3) return false;
+            const playerDiv = document.querySelector('div[style*="/cw3/composited/"]') || document.querySelector('.first');
 
-            const firstDiv = col3.querySelector('.first') || document.querySelector('.first') || document.querySelector('div[style*="/cw3/composited/"]');
+            if (!playerDiv) return false;
 
-            if (firstDiv) {
-                injectPanel(col3, firstDiv);
-            } else {
-                injectPanel(col3, 'afterbegin', 'div[style*="background-image: url"]');
-            }
+            const container = playerDiv.closest('.col-3') || playerDiv.parentElement;
+            if (!container) return false;
+            injectPanel(container, playerDiv);
             return true;
         };
 
         if (!tryInsert()) {
-            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
+            const observer = new MutationObserver(() => {
+                if (tryInsert()) observer.disconnect();
+            });
             observer.observe(document.body, { childList: true, subtree: true });
         }
     } else {
