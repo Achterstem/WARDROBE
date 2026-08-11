@@ -833,24 +833,32 @@ function rebuildPanel() {
 function extractModelUrl(firstDiv) {
     const imgEl = document.querySelector('img[src*="/cw3/composited/"]');
     if (imgEl) return imgEl.src;
-
-    for (const el of document.querySelectorAll('*[style*="/cw3/composited/"]')) {
-        const bg = el.style.backgroundImage || window.getComputedStyle(el).backgroundImage;
+    const bgEl = document.querySelector('[style*="/cw3/composited/"]');
+    if (bgEl) {
+        const bg = bgEl.getAttribute('style');
         const m = bg.match(/url\(['"]?(.*?)['"]?\)/);
         if (m && m[1]) return m[1];
     }
-
     if (firstDiv) {
         const attr = firstDiv.getAttribute('style') || '';
         const m = attr.match(/url\(['"]?(.*?)['"]?\)/);
         if (m?.[1]) return m[1];
 
         const cm = window.getComputedStyle(firstDiv).backgroundImage;
-        if (cm) {
+        if (cm && cm !== 'none') {
             const cmMatch = cm.match(/url\(['"]?(.*?)['"]?\)/);
             if (cmMatch?.[1]) return cmMatch[1];
         }
     }
+    const firstElements = document.querySelectorAll('[class*="first"]');
+    for (const el of firstElements) {
+         const cm = window.getComputedStyle(el).backgroundImage;
+         if (cm && cm.includes('/cw3/composited/')) {
+             const match = cm.match(/url\(['"]?(.*?)['"]?\)/);
+             if (match && match[1]) return match[1];
+         }
+    }
+
     return '';
 }
 
@@ -904,20 +912,24 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         const tryInsert = () => {
             if (document.getElementById('try-on-panel-wrapper')) return true;
 
-            const playerDiv = document.querySelector('div[style*="/cw3/composited/"]') || document.querySelector('.first');
+            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]') || document.querySelector('.col-3');
+            if (!col3) return false;
+                        const firstDiv =
+                col3.querySelector('[class="first"]') ||
+                col3.querySelector('[class*="first"]') ||
+                document.querySelector('[data-v-59afe5e8][class="first"]') ||
+                document.querySelector('[class="first"]');
 
-            if (!playerDiv) return false;
-
-            const container = playerDiv.closest('.col-3') || playerDiv.parentElement;
-            if (!container) return false;
-            injectPanel(container, playerDiv);
+            if (firstDiv) {
+                injectPanel(col3, firstDiv);
+            } else {
+                injectPanel(col3, 'afterbegin', 'div[style*="background-image: url"]');
+            }
             return true;
         };
 
         if (!tryInsert()) {
-            const observer = new MutationObserver(() => {
-                if (tryInsert()) observer.disconnect();
-            });
+            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
             observer.observe(document.body, { childList: true, subtree: true });
         }
     } else {
