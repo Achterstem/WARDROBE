@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.1.6
+// @version      1.2.0
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
@@ -13,8 +13,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
-// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
-// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
+// @downloadURL  https://update.greasyfork.org/scripts/558410/WARDROBE.user.js
+// @updateURL    https://update.greasyfork.org/scripts/558410/WARDROBE.meta.js
 // ==/UserScript==
 
 const appStorage = {
@@ -66,7 +66,7 @@ const PASS = [
     { name: "ПЕРВОБЫТНЫЙ МИР", id: 102899 },      { name: "МГНОВЕНИЯ ВЕСНЫ", id: 103309 },
     { name: "ПУТЕШЕСТВИЕ В КОСМОС", id: 103644 }, { name: "КИБЕРПАНК", id: 103813 },
     { name: "В ПОКОЯХ ЛЕСА", id: 104273 },        { name: "СЕРДЦЕ ПУСТЫНИ", id: 104575 },
-    { name: "ДРЕВНЯЯ ГРЕЦИЯ", id: 105322 },
+    { name: "ДРЕВНЯЯ ГРЕЦИЯ", id: 105322 },       { name: "ПРИРОДНЫЕ СТИХИИ", id: 106592 },
 ];
 
 const PASS_PASS = {
@@ -86,11 +86,21 @@ const PASS_PASS = {
             [103662,103669],[103689,103697],[103711,103738],[103782,103812],[103933,103950],[104039,104044],
             [104066,104068],[104074,104081],[104092,104333],[104373,104402],[104418,104450],[104515,104630],
             [104951,105036],[105107,105171],[105212,105242],[105285,105300],[105317,105449],[105770,105860],
-            [105880,106313],[106316,106509],[106520,106575]
+            [105880,106313],[106316,106509],[106520,106575], [106592,106704],[106781,106796],
+            [106807,106857], [106860,106929]
         ].flatMap(([a,b=a])=>Array.from({length:b-a+1},(_,i)=>a+i)),
         color: '#752424bd', bgColor: '#914f4f38', label: 'В ПРОПУСКЕ'
     }
 };
+
+const BACK_COSTUME_IDS = new Set([
+    106696, 106697, 106698, 106699, 106700, 106701, 106702, 106703, 106704
+]);
+
+function isBackCostumeId(costumeID) {
+    const n = parseInt(costumeID, 10);
+    return !Number.isNaN(n) && BACK_COSTUME_IDS.has(n);
+}
 
 const COSTUME_COLLECTIONS = {
     DE: { ids: [916, 917, 918, 919], color: '#4b2475c7', bgColor: '#83766740', label: 'ДС / СС' },
@@ -131,6 +141,7 @@ let currentTheme = appStorage.getItem('wd-theme') || 'dark';
 let catAge = parseInt(appStorage.getItem('wd-cat-age', 0), 10);
 let C = { ...THEMES[currentTheme] };
 let DEFAULT_MODEL_URL = '';
+let activeModelUrl = '';
 let layerCounter = 0;
 let pendingUrl = { model: null, costume: null };
 let searchStartID = 1;
@@ -148,7 +159,7 @@ function saveState() {
     const layers = Array.from(document.querySelectorAll('.costume-controller')).map(ctrl => {
         const id = ctrl.dataset.layerId;
         const l = activeLayers.find(x => x.id === id);
-        return l ? { url: l.url, hidden: l.hidden } : null;
+        return l ? { url: l.url, hidden: l.hidden, back: !!l.back } : null;
     }).filter(Boolean);
 
     const state = {
@@ -164,7 +175,7 @@ function restoreSavedState() {
         if (state) {
             if (state.model) changeModel(state.model, true);
             if (state.layers) {
-                [...state.layers].reverse().forEach(l => addCostumeLayer(l.url, l.hidden, true));
+                [...state.layers].reverse().forEach(l => addCostumeLayer(l.url, l.hidden, true, l.back ?? null));
             }
         }
     } catch(e) {}
@@ -183,6 +194,9 @@ function toggleCatAge() {
     const ageToggleBtn = document.getElementById('wd-age-toggle');
     if (ageToggleBtn) {
         ageToggleBtn.textContent = catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК';
+        ageToggleBtn.title = catAge === 0
+            ? 'Переключить на котёнка'
+            : 'Переключить на взрослого';
     }
 
     activeLayers = activeLayers.map(l => {
@@ -279,9 +293,20 @@ function renderSavedModels() {
         del.addEventListener('click', (e) => {
             e.stopPropagation();
             let m = appStorage.getItem('wd-models', []);
+            const idx = m.indexOf(url);
+            const wasActive = url === activeModelUrl;
             m = m.filter(x => x !== url);
             appStorage.setItem('wd-models', m);
             renderSavedModels();
+
+            if (wasActive) {
+                if (m.length > 0) {
+                    const nextIdx = Math.min(idx, m.length - 1);
+                    changeModel(m[nextIdx]);
+                } else {
+                    changeModel(DEFAULT_MODEL_URL);
+                }
+            }
         });
         thumb.appendChild(del);
         grid.appendChild(thumb);
@@ -308,7 +333,7 @@ function buildPanelInnerHTML(modelSrc) {
             <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
             <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
             <div style="display:flex;gap:6px;align-items:center;">
-                <button id="wd-age-toggle">${catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК'}</button>
+                <button id="wd-age-toggle" title="${catAge === 0 ? 'Переключить на котёнка' : 'Переключить на взрослого'}">${catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК'}</button>
                 <button id="wd-theme-toggle" title="${currentTheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}">${currentTheme === 'dark' ? '☀' : '☾'}</button>
             </div>
         </div>
@@ -387,11 +412,24 @@ function gridCols(panelId, minW, gap, fallback) {
 }
 
 function updateLayerOrder() {
-    const layers = document.getElementById('try-on-controller-panel')?.querySelectorAll('.costume-controller');
-    if (!layers) return;
-    layers.forEach((ctrl, i) => {
+    const panel = document.getElementById('try-on-controller-panel');
+    const ctrls = panel?.querySelectorAll('.costume-controller');
+    if (!ctrls) return;
+
+    const frontCtrls = [];
+    const backCtrls = [];
+    ctrls.forEach(ctrl => {
+        const layer = activeLayers.find(l => l.id === ctrl.dataset.layerId);
+        (layer?.back ? backCtrls : frontCtrls).push(ctrl);
+    });
+
+    frontCtrls.forEach((ctrl, i) => {
         const img = document.getElementById(ctrl.dataset.layerId);
-        if (img) img.style.zIndex = 1000 + (layers.length - i) * 10;
+        if (img) img.style.zIndex = 1000 + (frontCtrls.length - i) * 10;
+    });
+    backCtrls.forEach((ctrl, i) => {
+        const img = document.getElementById(ctrl.dataset.layerId);
+        if (img) img.style.zIndex = -((backCtrls.length - i) * 10);
     });
 }
 
@@ -465,6 +503,7 @@ function changeModel(url, skipSave = false) {
     const img = document.getElementById('player-model');
     if (!img || !url) return;
     img.src = url;
+    activeModelUrl = url;
     document.getElementById('model-url-input').value = '';
     document.getElementById('model-file-input').value = '';
     pendingUrl.model = null;
@@ -473,6 +512,7 @@ function changeModel(url, skipSave = false) {
         let models = appStorage.getItem('wd-models', []);
         if (!models.includes(url)) {
             models.push(url);
+            if (models.length > 10) models = models.slice(models.length - 10);
             appStorage.setItem('wd-models', models);
             renderSavedModels();
         }
@@ -481,7 +521,7 @@ function changeModel(url, skipSave = false) {
     if (!skipSave) saveState();
 }
 
-function renderCostumeLayer(id, url, hidden, container, panel) {
+function renderCostumeLayer(id, url, hidden, back, container, panel) {
     panel.querySelector('p')?.remove();
 
     const img = document.createElement('img');
@@ -501,6 +541,8 @@ function renderCostumeLayer(id, url, hidden, container, panel) {
     ctrl.innerHTML = `
         <div style="width:24px;height:24px;flex-shrink:0;background:url('${url}') center/contain no-repeat;border:1px solid ${C.border};border-radius:2px;"></div>
         <span style="flex-grow:1;color:${C.text};letter-spacing:.04em;user-select:none;">ID ${costumeID}</span>
+        <button class="toggle-depth-btn" data-layer-id="${id}" title="${back ? 'Перенести костюм перед моделью' : 'Перенести костюм за модель'}"
+            style="background:${C.glass};color:${C.text};border:1px solid ${C.border};width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">${back ? '⇩' : '⇧'}</button>
         <button class="toggle-vis-btn" data-layer-id="${id}" title="Скрыть/показать"
             style="background:${C.glass};color:${C.text};border:1px solid ${C.border};width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">${hidden ? '—' : '👁'}</button>
         <button class="remove-layer-btn" data-layer-id="${id}" title="Удалить"
@@ -509,6 +551,18 @@ function renderCostumeLayer(id, url, hidden, container, panel) {
 
     ctrl.addEventListener('mouseenter', () => ctrl.style.borderColor = C.goldDim);
     ctrl.addEventListener('mouseleave', () => ctrl.style.borderColor = C.border);
+
+    ctrl.querySelector('.toggle-depth-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        const layer = activeLayers.find(l => l.id === id);
+        if (layer) {
+            layer.back = !layer.back;
+            e.target.textContent = layer.back ? '⇩' : '⇧';
+            e.target.title = layer.back ? 'Перенести костюм перед моделью' : 'Перенести костюм за модель';
+            updateLayerOrder();
+            saveState();
+        }
+    });
 
     ctrl.querySelector('.toggle-vis-btn').addEventListener('click', e => {
         e.stopPropagation();
@@ -526,7 +580,7 @@ function renderCostumeLayer(id, url, hidden, container, panel) {
     panel.prepend(ctrl);
 }
 
-function addCostumeLayer(url, hidden = false, skipSave = false) {
+function addCostumeLayer(url, hidden = false, skipSave = false, back = null) {
     const normalizedUrl = getCostumeUrl(url, catAge);
     if (!normalizedUrl || normalizedUrl.includes('/cw3/composited/')) return;
     const id = `costume-layer-${++layerCounter}`;
@@ -534,15 +588,21 @@ function addCostumeLayer(url, hidden = false, skipSave = false) {
     const panel = document.getElementById('try-on-controller-panel');
     if (!container || !panel) return;
 
-    activeLayers.unshift({ id, url: normalizedUrl, hidden });
-    renderCostumeLayer(id, normalizedUrl, hidden, container, panel);
+    if (back === null || back === undefined) {
+        const costumeID = normalizedUrl.match(/costume\/(\d+)\.png/)?.[1];
+        back = costumeID ? isBackCostumeId(costumeID) : false;
+    }
+    back = !!back;
+
+    activeLayers.unshift({ id, url: normalizedUrl, hidden, back });
+    renderCostumeLayer(id, normalizedUrl, hidden, back, container, panel);
     updateLayerOrder();
     refreshThumbnails();
 
     if (!skipSave) saveState();
 }
 
-function toggleCostume(url) {
+function toggleCostume(url, back = null) {
     const normalizedUrl = getCostumeUrl(url, catAge);
     const costumeID = normalizedUrl.match(/costume\/(\d+)\.png/)?.[1];
     const existing = activeLayers.find(l => {
@@ -552,7 +612,7 @@ function toggleCostume(url) {
     if (existing) {
         removeLayer(existing.id);
     } else {
-        addCostumeLayer(normalizedUrl);
+        addCostumeLayer(normalizedUrl, false, false, back);
     }
 }
 
@@ -570,7 +630,7 @@ function handleLoad(type) {
     if (type === 'model') {
         changeModel(url);
     } else {
-        addCostumeLayer(url);
+        addCostumeLayer(url, false, false, null);
         pendingUrl.costume = null;
         document.getElementById('costume-file-input').value = '';
         document.getElementById('costume-url-input').value = '';
@@ -631,6 +691,14 @@ function updateSearchDisplay(startId) {
             thumb.appendChild(collectionLabel);
         }
 
+        if (isBackCostumeId(costumeID)) {
+            const backBadge = document.createElement('div');
+            backBadge.title = 'Отображается за моделью';
+            backBadge.style.cssText = `position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;line-height:1;padding:2px 4px;border-radius:2px;z-index:2;`;
+            backBadge.textContent = '⇩';
+            thumb.appendChild(backBadge);
+        }
+
         thumb.addEventListener('click', () => toggleCostume(url));
         thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
         thumb.addEventListener('mouseleave', () => {
@@ -671,7 +739,16 @@ function buildPageGrid(costumeUrls) {
         });
 
         const thumb = document.createElement('div');
-        thumb.style.cssText = thumbCSS(url, '75px', isApplied) + `background-color:${C.glass};`;
+        thumb.style.cssText = thumbCSS(url, '75px', isApplied) + `background-color:${C.glass};position:relative;`;
+
+        if (costumeID && isBackCostumeId(costumeID)) {
+            const backBadge = document.createElement('div');
+            backBadge.title = 'Отображается за моделью';
+            backBadge.style.cssText = `position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;line-height:1;padding:1px 3px;border-radius:2px;z-index:2;`;
+            backBadge.textContent = '⇩';
+            thumb.appendChild(backBadge);
+        }
+
         thumb.addEventListener('click', () => toggleCostume(url));
         thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
         thumb.addEventListener('mouseleave', () => {
@@ -825,7 +902,7 @@ function rebuildPanel() {
     if (activeLayers.length) {
         const container = document.querySelector('#try-on-panel-content .try-on-container');
         const panel = document.getElementById('try-on-controller-panel');
-        [...activeLayers].reverse().forEach(({ id, url, hidden }) => renderCostumeLayer(id, url, hidden, container, panel));
+        [...activeLayers].reverse().forEach(({ id, url, hidden, back }) => renderCostumeLayer(id, url, hidden, back, container, panel));
         updateLayerOrder();
     }
 }
@@ -833,12 +910,7 @@ function rebuildPanel() {
 function extractModelUrl(firstDiv) {
     const imgEl = document.querySelector('img[src*="/cw3/composited/"]');
     if (imgEl) return imgEl.src;
-    const bgEl = document.querySelector('[style*="/cw3/composited/"]');
-    if (bgEl) {
-        const bg = bgEl.getAttribute('style');
-        const m = bg.match(/url\(['"]?(.*?)['"]?\)/);
-        if (m && m[1]) return m[1];
-    }
+
     if (firstDiv) {
         const attr = firstDiv.getAttribute('style') || '';
         const m = attr.match(/url\(['"]?(.*?)['"]?\)/);
@@ -850,13 +922,25 @@ function extractModelUrl(firstDiv) {
             if (cmMatch?.[1]) return cmMatch[1];
         }
     }
+
+    for (const el of document.querySelectorAll('div[style*="/cw3/composited/"]')) {
+        const m = el.getAttribute('style')?.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+    }
+
+    const comp = document.querySelector('div[style*="composited"]');
+    if (comp) {
+        const m = window.getComputedStyle(comp).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+        if (m?.[1]) return m[1];
+    }
+
     const firstElements = document.querySelectorAll('[class*="first"]');
     for (const el of firstElements) {
-         const cm = window.getComputedStyle(el).backgroundImage;
-         if (cm && cm.includes('/cw3/composited/')) {
-             const match = cm.match(/url\(['"]?(.*?)['"]?\)/);
-             if (match && match[1]) return match[1];
-         }
+        const cm = window.getComputedStyle(el).backgroundImage;
+        if (cm && cm.includes('/cw3/composited/')) {
+            const match = cm.match(/url\(['"]?(.*?)['"]?\)/);
+            if (match?.[1]) return match[1];
+        }
     }
 
     return '';
@@ -875,6 +959,7 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
 
     const url = extractModelUrl(firstDiv);
     if (url) DEFAULT_MODEL_URL = url;
+    activeModelUrl = DEFAULT_MODEL_URL;
 
     injectStyles();
 
@@ -912,6 +997,19 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         const tryInsert = () => {
             if (document.getElementById('try-on-panel-wrapper')) return true;
 
+            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
+            if (col3) {
+                const firstDiv =
+                    col3.querySelector('[class="first"]') ||
+                    col3.querySelector('[class*="first"]') ||
+                    document.querySelector('[data-v-59afe5e8][class="first"]') ||
+                    document.querySelector('[class="first"]');
+                if (firstDiv) {
+                    injectPanel(col3, firstDiv);
+                    return true;
+                }
+            }
+
             const targetParent = document.querySelector('#app') || document.body;
             if (!targetParent) return false;
 
@@ -930,9 +1028,7 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         };
 
         if (!tryInsert()) {
-            const observer = new MutationObserver(() => {
-                if (tryInsert()) observer.disconnect();
-            });
+            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
             observer.observe(document.body, { childList: true, subtree: true });
         }
     } else {
