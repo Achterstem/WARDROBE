@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.4.0
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
@@ -173,7 +173,9 @@ function restoreSavedState() {
     try {
         const state = appStorage.getItem('wd-state');
         if (state) {
-            if (state.model) changeModel(state.model, true);
+            if (state.model && !state.model.includes('/cw3/composited/')) {
+                changeModel(state.model, true);
+            }
             if (state.layers) {
                 [...state.layers].reverse().forEach(l => addCostumeLayer(l.url, l.hidden, true, l.back ?? null));
             }
