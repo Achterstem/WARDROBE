@@ -193,6 +193,16 @@ function applyTheme(theme) {
     rebuildPanel();
 }
 
+function getPanelState() {
+    return appStorage.getItem('wd-panel-open', { main: false, search: false, model: false, costume: false });
+}
+
+function savePanelState(key, value) {
+    const state = getPanelState();
+    state[key] = value;
+    appStorage.setItem('wd-panel-open', state);
+}
+
 function toggleCatAge() {
     catAge = catAge === 0 ? -1 : 0;
     appStorage.setItem('wd-cat-age', catAge);
@@ -651,8 +661,33 @@ function togglePanel(id) {
     arrow.textContent = open ? '▾' : '▸';
     if (open && id === 'costume-search' && !document.getElementById('costume-search-thumbnails').children.length)
         updateSearchDisplay(searchStartID);
-
     if (open && id === 'model-loader') renderSavedModels();
+
+    const key = id === 'costume-search' ? 'search' : id === 'model-loader' ? 'model' : 'costume';
+    savePanelState(key, open);
+}
+
+function applySavedPanelState() {
+    const state = getPanelState();
+    if (state.main) {
+        document.getElementById('try-on-panel-content').style.display = 'flex';
+        document.getElementById('main-panel-toggle-btn').textContent = '▾';
+        document.getElementById('try-on-panel-wrapper').style.paddingBottom = '20px';
+    }
+    if (state.search) {
+        document.getElementById('costume-search-content').style.display = 'block';
+        document.getElementById('costume-search-toggle-btn').textContent = '▾';
+        updateSearchDisplay(searchStartID);
+    }
+    if (state.model) {
+        document.getElementById('model-loader-content').style.display = 'block';
+        document.getElementById('model-loader-toggle-btn').textContent = '▾';
+        renderSavedModels();
+    }
+    if (state.costume) {
+        document.getElementById('costume-loader-content').style.display = 'block';
+        document.getElementById('costume-loader-toggle-btn').textContent = '▾';
+    }
 }
 
 function updateSearchDisplay(startId) {
@@ -815,6 +850,7 @@ function bindPanelEvents(costumeUrls) {
         toggleBtn.textContent = open ? '▾' : '▸';
         toggleBtn.style.transform = open ? 'rotate(0deg)' : '';
         wrapper.style.paddingBottom = open ? '20px' : '0';
+        savePanelState('main', open);
     });
 
     document.getElementById('wd-theme-toggle').addEventListener('click', e => {
@@ -994,6 +1030,7 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
 
     bindPanelEvents(costumeUrls);
     restoreSavedState();
+    applySavedPanelState();
 }
 
 (function () {
