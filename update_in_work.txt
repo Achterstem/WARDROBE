@@ -1000,31 +1000,56 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
 (function () {
     const isSettingsCostumes = /\/settings_costumes/.test(location.pathname);
 
-    if (isSettingsCostumes) {
-        const tryInsert = () => {
-            if (document.getElementById('try-on-panel-wrapper')) return true;
+    // --- ветка /settings_costumes: ждём появления col3 + firstDiv ---
+    function tryInsertSettings() {
+        if (document.getElementById('try-on-panel-wrapper')) return true;
 
-            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
-            if (!col3) return false;
+        const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
+        if (!col3) return false;
 
-            const firstDiv =
-                col3.querySelector('[class="first"]') ||
-                col3.querySelector('[class*="first"]') ||
-                document.querySelector('[data-v-59afe5e8][class="first"]') ||
-                document.querySelector('[class="first"]');
-            if (!firstDiv) return false;
+        const firstDiv =
+            col3.querySelector('[class="first"]') ||
+            col3.querySelector('[class*="first"]') ||
+            document.querySelector('[data-v-59afe5e8][class="first"]') ||
+            document.querySelector('[class="first"]');
+        if (!firstDiv) return false;
 
-            injectPanel(col3, firstDiv);
-            return true;
-        };
+        injectPanel(col3, firstDiv);
+        return true;
+    }
 
-        if (!tryInsert()) {
-            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
-            observer.observe(document.body, { childList: true, subtree: true });
-        }
-    } else {
+    // --- ветка /rabbit: ждём появления #main И реального контента внутри
+    //     (иконок костюмов или composited-модели), а не просто контейнера ---
+    function tryInsertRabbit() {
+        if (document.getElementById('try-on-panel-wrapper')) return true;
+
         const mainDiv = document.getElementById('main');
-        if (!mainDiv) return;
+        if (!mainDiv) return false;
+
+        const hasCostumeIcons = document.querySelectorAll('#main button div[style*="background-image: url"]').length > 0;
+        const hasModelImg = !!document.querySelector('img[src*="/cw3/composited/"]') ||
+                             !!document.querySelector('div[style*="composited"]');
+        if (!hasCostumeIcons && !hasModelImg) return false;
+
         injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
+        return true;
+    }
+
+    const tryInsert = isSettingsCostumes ? tryInsertSettings : tryInsertRabbit;
+
+    if (!tryInsert()) {
+        const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        // подстраховка на случай, если SPA не создаёт подходящих мутаций
+        // (например, контент рисуется через canvas/requestAnimationFrame)
+        let attempts = 0;
+        const poll = setInterval(() => {
+            attempts++;
+            if (tryInsert() || attempts > 40) { // ~20 секунд при шаге 500мс
+                clearInterval(poll);
+                observer.disconnect();
+            }
+        }, 500);
     }
 })();
