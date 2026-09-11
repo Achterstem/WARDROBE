@@ -175,7 +175,6 @@ function restoreSavedState() {
         const state = appStorage.getItem('wd-state');
         if (state) {
             const isValidModel = state.model
-                && state.model.includes('/cw3/')
                 && !state.model.includes('/cw3/composited/');
             if (isValidModel) {
                 changeModel(state.model, true);
@@ -1000,7 +999,6 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
 (function () {
     const isSettingsCostumes = /\/settings_costumes/.test(location.pathname);
 
-    // --- ветка /settings_costumes: ждём появления col3 + firstDiv ---
     function tryInsertSettings() {
         if (document.getElementById('try-on-panel-wrapper')) return true;
 
@@ -1018,8 +1016,6 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         return true;
     }
 
-    // --- ветка /rabbit: ждём появления #main И реального контента внутри
-    //     (иконок костюмов или composited-модели), а не просто контейнера ---
     function tryInsertRabbit() {
         if (document.getElementById('try-on-panel-wrapper')) return true;
 
@@ -1041,12 +1037,10 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // подстраховка на случай, если SPA не создаёт подходящих мутаций
-        // (например, контент рисуется через canvas/requestAnimationFrame)
         let attempts = 0;
         const poll = setInterval(() => {
             attempts++;
-            if (tryInsert() || attempts > 40) { // ~20 секунд при шаге 500мс
+            if (tryInsert() || attempts > 40) {
                 clearInterval(poll);
                 observer.disconnect();
             }
