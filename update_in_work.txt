@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.2.0
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/rabbit*
@@ -13,8 +13,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
-// @downloadURL  https://update.greasyfork.org/scripts/558410/WARDROBE.user.js
-// @updateURL    https://update.greasyfork.org/scripts/558410/WARDROBE.meta.js
+// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
+// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
 // ==/UserScript==
 
 const appStorage = {
@@ -147,6 +147,7 @@ let pendingUrl = { model: null, costume: null };
 let searchStartID = 1;
 let searchItemsPerPage = 40;
 let activeLayers = [];
+let activeCostumeSelector = '#main button div[style*="background-image: url"]';
 
 function getCostumeUrl(idOrUrl, age = catAge) {
     if (typeof idOrUrl === 'number' || /^\d+$/.test(idOrUrl)) {
@@ -163,7 +164,7 @@ function saveState() {
     }).filter(Boolean);
 
     const state = {
-        model: document.getElementById('player-model')?.src || DEFAULT_MODEL_URL,
+        model: document.getElementById('player-model')?.getAttribute('src') || DEFAULT_MODEL_URL,
         layers: layers
     };
     appStorage.setItem('wd-state', state);
@@ -173,7 +174,10 @@ function restoreSavedState() {
     try {
         const state = appStorage.getItem('wd-state');
         if (state) {
-            if (state.model && !state.model.includes('/cw3/composited/')) {
+            const isValidModel = state.model
+                && state.model.includes('/cw3/')
+                && !state.model.includes('/cw3/composited/');
+            if (isValidModel) {
                 changeModel(state.model, true);
             }
             if (state.layers) {
@@ -234,7 +238,7 @@ function injectStyles() {
         @keyframes wd-fade-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
         #try-on-panel-content { animation: wd-fade-in .25s ease; }
         #wd-theme-toggle, #wd-age-toggle {
-            border: 2px solid ${C.gold}; color: ${C.gold};
+            border: 2px solid ${C.gold}; color: ${C.gold}; background: transparent;
             font-size: 13px; cursor: pointer; padding: 3px 8px; border-radius: 50px;
             transition: border-color .15s, color .15s; line-height: 1.4; flex-shrink: 0; font-family: inherit; font-weight: 600;
         }
@@ -345,7 +349,7 @@ function buildPanelInnerHTML(modelSrc) {
                     <div style="text-align:center;margin-bottom:16px;">
                         <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
                         <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 30px;transform:scale(1.4);transform-origin:center;">
-                            <img id="player-model" src="${modelSrc}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
+                            <img id="player-model" ${modelSrc ? `src="${modelSrc}"` : ''} style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
                         </div>
                         <div style="display:flex;gap:6px;padding-top: 6px;">
                             <button id="save-preview-100" title="Сохранить 100×150"
@@ -461,7 +465,7 @@ function refreshThumbnails() {
     const pageThumbnails = document.querySelectorAll('#try-on-thumbnails > div');
     if (pageThumbnails.length > 0) {
         const costumeUrls = [];
-        document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
+        document.querySelectorAll(activeCostumeSelector).forEach(icon => {
             const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
             if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
         });
@@ -864,7 +868,7 @@ function rebuildPanel() {
     const searchOpen  = document.getElementById('costume-search-content')?.style.display !== 'none';
     const modelOpen   = document.getElementById('model-loader-content')?.style.display !== 'none';
     const costumeOpen = document.getElementById('costume-loader-content')?.style.display !== 'none';
-    const modelSrc    = document.getElementById('player-model')?.src ?? DEFAULT_MODEL_URL;
+    const modelSrc    = document.getElementById('player-model')?.getAttribute('src') || DEFAULT_MODEL_URL;
 
     document.getElementById('wd-style')?.remove();
     injectStyles();
@@ -877,7 +881,7 @@ function rebuildPanel() {
     wrapper.innerHTML = buildPanelInnerHTML(modelSrc);
 
     const costumeUrls = [];
-    document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
+    document.querySelectorAll(activeCostumeSelector).forEach(icon => {
         const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
         if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
     });
@@ -958,6 +962,7 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
         firstDiv = firstDivOrPosition;
         costumeSourceSelector = 'div[style*="background-image: url"]';
     }
+    activeCostumeSelector = costumeSourceSelector;
 
     const url = extractModelUrl(firstDiv);
     if (url) DEFAULT_MODEL_URL = url;
@@ -1000,33 +1005,17 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
             if (document.getElementById('try-on-panel-wrapper')) return true;
 
             const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
-            if (col3) {
-                const firstDiv =
-                    col3.querySelector('[class="first"]') ||
-                    col3.querySelector('[class*="first"]') ||
-                    document.querySelector('[data-v-59afe5e8][class="first"]') ||
-                    document.querySelector('[class="first"]');
-                if (firstDiv) {
-                    injectPanel(col3, firstDiv);
-                    return true;
-                }
-            }
+            if (!col3) return false;
 
-            const targetParent = document.querySelector('#app') || document.body;
-            if (!targetParent) return false;
+            const firstDiv =
+                col3.querySelector('[class="first"]') ||
+                col3.querySelector('[class*="first"]') ||
+                document.querySelector('[data-v-59afe5e8][class="first"]') ||
+                document.querySelector('[class="first"]');
+            if (!firstDiv) return false;
 
-            const referenceNode = document.querySelector('.first') || document.querySelector('[style*="/cw3/composited/"]') || document.querySelector('button');
-            if (referenceNode) {
-                injectPanel(referenceNode.parentElement || targetParent, referenceNode);
-                return true;
-            }
-
-            if (document.body.children.length > 0) {
-                injectPanel(targetParent, 'afterbegin', 'div[style*="background-image: url"]');
-                return true;
-            }
-
-            return false;
+            injectPanel(col3, firstDiv);
+            return true;
         };
 
         if (!tryInsert()) {
