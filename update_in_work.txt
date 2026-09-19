@@ -4,10 +4,10 @@
 // @version      1.2.0
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
+// @match        http*://*.catwar.net/settings*
+// @match        http*://*.catwar.su/settings*
 // @match        http*://*.catwar.net/rabbit*
 // @match        http*://*.catwar.su/rabbit*
-// @match        http*://*.catwar.net/settings_costumes*
-// @match        http*://*.catwar.su/settings_costumes*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
 // @license      MIT
 // @grant        GM_setValue
@@ -137,6 +137,17 @@ const THEMES = {
     }
 };
 
+const CAT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="30" height="30" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M10 10 L22 18 Q32 15 42 18 L54 10 L54 34 Q54 54 32 54 Q10 54 10 34 Z"/>
+<circle cx="22" cy="34" r="7"/><circle cx="42" cy="34" r="7"/>
+<path d="M29 34 Q32 31 35 34"/>
+<circle cx="22" cy="34" r="1.6" fill="currentColor" stroke="none"/>
+<circle cx="42" cy="34" r="1.6" fill="currentColor" stroke="none"/>
+<path d="M30 44.5 L34 44.5 L32 47 Z" fill="currentColor"/>
+<path d="M32 47 V49 M32 49 Q29.5 51 27.5 49 M32 49 Q34.5 51 36.5 49"/>
+<path d="M13 47 L4 45 M13 51 L5 53 M51 47 L60 45 M51 51 L59 53" stroke-width="2"/>
+</svg>`;
+
 let currentTheme = appStorage.getItem('wd-theme') || 'dark';
 let catAge = parseInt(appStorage.getItem('wd-cat-age', 0), 10);
 let C = { ...THEMES[currentTheme] };
@@ -147,13 +158,55 @@ let pendingUrl = { model: null, costume: null };
 let searchStartID = 1;
 let searchItemsPerPage = 40;
 let activeLayers = [];
-let activeCostumeSelector = '#main button div[style*="background-image: url"]';
+let activeCostumeSelector = 'img[src*="/cw3/cats/"], [style*="/cw3/cats/"]';
+
+const COSTUME_ICON_SELECTOR = 'img[src*="/cw3/cats/"], [style*="/cw3/cats/"]';
 
 function getCostumeUrl(idOrUrl, age = catAge) {
     if (typeof idOrUrl === 'number' || /^\d+$/.test(idOrUrl)) {
         return `/cw3/cats/${age}/costume/${idOrUrl}.png`;
     }
     return idOrUrl.replace(/\/cw3\/cats\/(-?\d+)\//, `/cw3/cats/${age}/`);
+}
+
+function getElementCostumeUrl(el) {
+    if (!el) return '';
+    if (el.tagName === 'IMG') {
+        return el.getAttribute('src') || '';
+    }
+    const style = el.getAttribute('style') || '';
+    const m = style.match(/url\(['"]?(.*?)['"]?\)/);
+    return m?.[1] || '';
+}
+
+function collectCostumeUrls(selector) {
+    const wrapper = document.getElementById('try-on-panel-wrapper');
+    const seen = new Set();
+    const urls = [];
+    document.querySelectorAll(selector).forEach(icon => {
+        if (wrapper && wrapper.contains(icon)) return;
+        if (icon.getAttribute('class') === 'first') return;
+        const src = getElementCostumeUrl(icon);
+        if (!src.includes('/cw3/cats/')) return;
+        const key = src.match(/costume\/(\d+)\.png/)?.[1] || src;
+        if (seen.has(key)) return;
+        seen.add(key);
+        urls.push(src);
+    });
+    return urls;
+}
+
+let discoveredCostumeUrls = [];
+
+function mergeCostumeUrls(newUrls) {
+    const seen = new Set(discoveredCostumeUrls.map(u => u.match(/costume\/(\d+)\.png/)?.[1] || u));
+    newUrls.forEach(u => {
+        const key = u.match(/costume\/(\d+)\.png/)?.[1] || u;
+        if (seen.has(key)) return;
+        seen.add(key);
+        discoveredCostumeUrls.push(u);
+    });
+    return discoveredCostumeUrls;
 }
 
 function saveState() {
@@ -194,7 +247,7 @@ function applyTheme(theme) {
 }
 
 function getPanelState() {
-    return appStorage.getItem('wd-panel-open', { main: false, search: false, model: false, costume: false });
+    return appStorage.getItem('wd-panel-open', { main: true, search: false, model: false, costume: false });
 }
 
 function savePanelState(key, value) {
@@ -246,20 +299,71 @@ function injectStyles() {
         .sortable-ghost { opacity: .4; background: ${C.glass}; border-radius: 2px; }
         @keyframes wd-fade-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
         #try-on-panel-content { animation: wd-fade-in .25s ease; }
-        #wd-theme-toggle, #wd-age-toggle {
+        #wd-theme-toggle, #wd-age-toggle, #wd-close-btn {
             border: 2px solid ${C.gold}; color: ${C.gold}; background: transparent;
             font-size: 13px; cursor: pointer; padding: 3px 8px; border-radius: 50px;
             transition: border-color .15s, color .15s; line-height: 1.4; flex-shrink: 0; font-family: inherit; font-weight: 600;
         }
-        #wd-theme-toggle:hover, #wd-age-toggle:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; background-color: ${C.bg} !important; }
+        #wd-theme-toggle:hover, #wd-age-toggle:hover, #wd-close-btn:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; background-color: ${C.bg} !important; }
+        #wd-fab:hover { transform: scale(1.08); }
         @media (max-width: 768px) {
             .w-flex { flex-direction: column !important; align-items: stretch !important; }
             #control-col { margin-right: 0 !important; margin-bottom: 20px !important; }
             .s-ctrl { flex-direction: column !important; gap: 8px !important; }
             .s-ctrl > * { width: 100% !important; box-sizing: border-box; }
+            #try-on-panel-wrapper { right: 10px !important; left: 10px !important; width: auto !important; bottom: 82px !important; max-height: 75vh !important; }
+            #wd-fab { bottom: 14px !important; right: 14px !important; }
         }
     `;
     document.head.appendChild(style);
+}
+
+function wrapperFloatingCSS(display) {
+    return `position:fixed;bottom:90px;right:20px;z-index:2147483000;` +
+        `border:1px solid ${C.border};border-radius:8px;background:${C.panel};` +
+        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
+        `padding:0 20px 20px;color:${C.text};box-sizing:border-box;` +
+        `width:90vw;max-width:1300px;max-height:80vh;overflow-y:auto;overflow-x:hidden;` +
+        `box-shadow:0 6px 28px ${C.shadow};display:${display};`;
+}
+
+function createFAB() {
+    let fab = document.getElementById('wd-fab');
+    if (fab) { updateFabTheme(); return fab; }
+
+    fab = document.createElement('button');
+    fab.id = 'wd-fab';
+    fab.type = 'button';
+    fab.title = 'WARDROBE';
+    fab.innerHTML = CAT_ICON_SVG;
+    document.body.appendChild(fab);
+    updateFabTheme();
+
+    fab.addEventListener('click', () => toggleWardrobePanel());
+    fab.addEventListener('mouseenter', () => fab.style.transform = 'scale(1.08)');
+    fab.addEventListener('mouseleave', () => fab.style.transform = 'scale(1)');
+    return fab;
+}
+
+function updateFabTheme() {
+    const fab = document.getElementById('wd-fab');
+    if (!fab) return;
+    fab.style.cssText =
+        `position:fixed;bottom:20px;right:20px;z-index:2147483001;` +
+        `width:52px;height:52px;border-radius:50%;` +
+        `background:${C.panel};border:2px solid ${C.gold};color:${C.gold};` +
+        `font-size:24px;line-height:1;cursor:pointer;` +
+        `display:flex;align-items:center;justify-content:center;` +
+        `box-shadow:0 3px 14px ${C.shadow};transition:transform .15s ease,border-color .15s;`;
+}
+
+function toggleWardrobePanel(forceOpen) {
+    const wrapper = document.getElementById('try-on-panel-wrapper');
+    if (!wrapper) return;
+    const isOpen = wrapper.style.display !== 'none';
+    const open = forceOpen === undefined ? !isOpen : forceOpen;
+    wrapper.style.display = open ? 'block' : 'none';
+    appStorage.setItem('wd-fab-open', open);
 }
 
 const thumbCSS = (url, h, isApplied = false) =>
@@ -343,79 +447,84 @@ function buildPanelInnerHTML(modelSrc) {
 
     return `
         <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold},transparent);"></div>
-        <div id="main-panel-header" style="display:flex;align-items:center;cursor:pointer;padding:14px 0;gap:12px;">
-            <button id="main-panel-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:16px;cursor:pointer;padding:0;line-height:1;transition:transform .2s;">▸</button>
-            <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
-            <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
-            <div style="display:flex;gap:6px;align-items:center;">
-                <button id="wd-age-toggle" title="${catAge === 0 ? 'Переключить на котёнка' : 'Переключить на взрослого'}">${catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК'}</button>
-                <button id="wd-theme-toggle" title="${currentTheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}">${currentTheme === 'dark' ? '☀' : '☾'}</button>
+        <div id="wd-top-bar" style="display:flex;align-items:center;justify-content:flex-end;padding:14px 0 10px;gap:6px;">
+            <button id="wd-age-toggle" title="${catAge === 0 ? 'Переключить на котёнка' : 'Переключить на взрослого'}">${catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК'}</button>
+            <button id="wd-theme-toggle" title="${currentTheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}">${currentTheme === 'dark' ? '☀' : '☾'}</button>
+            <button id="wd-close-btn" title="Закрыть гардероб">✕</button>
+        </div>
+
+        <div class="wd-tray" style="border:1px solid ${C.border};border-radius:6px;margin-bottom:12px;overflow:hidden;">
+            <div id="main-panel-header" style="display:flex;align-items:center;cursor:pointer;padding:10px 12px;gap:10px;background:${C.glass};">
+                <button id="main-panel-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:16px;cursor:pointer;padding:0;line-height:1;transition:transform .2s;">▸</button>
+                <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
+                <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
+            </div>
+            <div id="try-on-panel-content" style="display:none;flex-direction:column;padding:16px 12px 18px;">
+                <div class="w-flex" style="display:flex;align-items:flex-start;gap:24px;">
+                    <div id="control-col" style="display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;width:190px;">
+                        <div style="text-align:center;margin-bottom:16px;">
+                            <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
+                            <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 30px;transform:scale(1.4);transform-origin:center;">
+                                <img id="player-model" ${modelSrc ? `src="${modelSrc}"` : ''} style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
+                            </div>
+                            <div style="display:flex;gap:6px;padding-top: 6px;">
+                                <button id="save-preview-100" title="Сохранить 100×150"
+                                    style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
+                                    ⭳ 100×150</button>
+                                <button id="save-preview-200" title="Сохранить 200×300"
+                                    style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
+                                    ⭳ 200×300</button>
+                            </div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;">
+                            ${loaderHTML('model', 'Заменить модель', true)}
+                            ${loaderHTML('costume', 'Загрузить костюм', false)}
+                        </div>
+                        <div style="margin-top:10px;">
+                            <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:6px;text-transform:uppercase;">слои</div>
+                            <div id="try-on-controller-panel" style="max-height:320px;overflow-y:auto;padding:4px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                                <p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="flex-grow:1;min-width:0;">
+                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:8px;text-transform:uppercase;">костюмы на странице</div>
+                        <div id="try-on-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:3px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                    </div>
+                </div>
             </div>
         </div>
-        <div id="try-on-panel-content" style="display:none;flex-direction:column;padding-bottom:20px;">
-            <div class="w-flex" style="display:flex;align-items:flex-start;gap:24px;">
-                <div id="control-col" style="display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;width:190px;">
-                    <div style="text-align:center;margin-bottom:16px;">
-                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
-                        <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 30px;transform:scale(1.4);transform-origin:center;">
-                            <img id="player-model" ${modelSrc ? `src="${modelSrc}"` : ''} style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
-                        </div>
-                        <div style="display:flex;gap:6px;padding-top: 6px;">
-                            <button id="save-preview-100" title="Сохранить 100×150"
-                                style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
-                                ⭳ 100×150</button>
-                            <button id="save-preview-200" title="Сохранить 200×300"
-                                style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
-                                ⭳ 200×300</button>
-                        </div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;">
-                        ${loaderHTML('model', 'Заменить модель', true)}
-                        ${loaderHTML('costume', 'Загрузить костюм', false)}
-                    </div>
-                    <div style="margin-top:10px;">
-                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:6px;text-transform:uppercase;">слои</div>
-                        <div id="try-on-controller-panel" style="max-height:320px;overflow-y:auto;padding:4px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                            <p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>
-                        </div>
-                    </div>
-                </div>
-                <div style="flex-grow:1;min-width:0;">
-                    <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:8px;text-transform:uppercase;">костюмы на странице</div>
-                    <div id="try-on-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:3px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
-                </div>
+
+        <div class="wd-tray" style="border:1px solid ${C.border};border-radius:6px;overflow:hidden;">
+            <div id="costume-search-header" style="display:flex;align-items:center;cursor:pointer;padding:10px 12px;gap:10px;background:${C.glass};">
+                <button id="costume-search-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:14px;cursor:pointer;padding:0;line-height:1;">▸</button>
+                <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
             </div>
-            <div style="margin-top:20px;border-top:4px solid ${C.border};padding-top:14px;">
-                <div id="costume-search-header" style="display:flex;align-items:center;background:linear-gradient(to right,${C.border} 0%,transparent 100%);padding:10px;font-weight:600;border-radius:15px;cursor:pointer;gap:10px;margin-bottom:4px;">
-                    <button id="costume-search-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:14px;cursor:pointer;padding:0;line-height:1;">▸</button>
-                    <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
+            <div id="costume-search-content" style="display:none;padding:14px 12px 16px;">
+                <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+                    <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;">ПРОПУСКИ</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        ${quickBtns}
+                    </div>
+                    <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;margin-top:4px;">ДРУГИЕ КОСТЮМЫ</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        ${collectionBtns}
+                    </div>
                 </div>
-                <div id="costume-search-content" style="display:none;padding-top:12px;">
-                    <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
-                        <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;">ПРОПУСКИ</div>
-                        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                            ${quickBtns}
-                        </div>
-                        <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;margin-top:4px;">ДРУГИЕ КОСТЮМЫ</div>
-                        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                            ${collectionBtns}
-                        </div>
-                    </div>
-                    <div class="s-ctrl" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-                        <span style="font-size:12px;letter-spacing:.08em;color:${C.muted};white-space:nowrap;">ID от:</span>
-                        <input type="text" id="search-start-id-input" placeholder="число"
-                            style="width:80px;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:2px;font-size:12px;font-family:inherit;box-sizing:border-box;">
-                        <button id="search-range-btn"
-                            style="padding:5px 14px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:10px;letter-spacing:.1em;font-family:inherit;transition:border-color .15s,color .15s;">
-                            НАЙТИ</button>
-                    </div>
-                    <div class="s-ctrl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                        <button id="prev-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8592;</button>
-                        <span id="current-id-display" style="font-size:12px;letter-spacing:.1em;color:${C.muted};">1 — 40</span>
-                        <button id="next-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8594;</button>
-                    </div>
-                    <div id="costume-search-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                <div class="s-ctrl" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                    <span style="font-size:12px;letter-spacing:.08em;color:${C.muted};white-space:nowrap;">ID от:</span>
+                    <input type="text" id="search-start-id-input" placeholder="число"
+                        style="width:80px;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:2px;font-size:12px;font-family:inherit;box-sizing:border-box;">
+                    <button id="search-range-btn"
+                        style="padding:5px 14px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:10px;letter-spacing:.1em;font-family:inherit;transition:border-color .15s,color .15s;">
+                        НАЙТИ</button>
                 </div>
+                <div class="s-ctrl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                    <button id="prev-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8592;</button>
+                    <span id="current-id-display" style="font-size:12px;letter-spacing:.1em;color:${C.muted};">1 — 40</span>
+                    <button id="next-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8594;</button>
+                </div>
+                <div id="costume-search-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
             </div>
         </div>`;
 }
@@ -473,12 +582,7 @@ function refreshThumbnails() {
     }
     const pageThumbnails = document.querySelectorAll('#try-on-thumbnails > div');
     if (pageThumbnails.length > 0) {
-        const costumeUrls = [];
-        document.querySelectorAll(activeCostumeSelector).forEach(icon => {
-            const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-            if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
-        });
-        buildPageGrid(costumeUrls);
+        buildPageGrid(mergeCostumeUrls(collectCostumeUrls(activeCostumeSelector)));
     }
 }
 
@@ -672,7 +776,6 @@ function applySavedPanelState() {
     if (state.main) {
         document.getElementById('try-on-panel-content').style.display = 'flex';
         document.getElementById('main-panel-toggle-btn').textContent = '▾';
-        document.getElementById('try-on-panel-wrapper').style.paddingBottom = '20px';
     }
     if (state.search) {
         document.getElementById('costume-search-content').style.display = 'block';
@@ -688,6 +791,26 @@ function applySavedPanelState() {
         document.getElementById('costume-loader-content').style.display = 'block';
         document.getElementById('costume-loader-toggle-btn').textContent = '▾';
     }
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy') ? resolve() : reject();
+        } catch (e) {
+            reject(e);
+        } finally {
+            ta.remove();
+        }
+    });
 }
 
 function updateSearchDisplay(startId) {
@@ -739,6 +862,26 @@ function updateSearchDisplay(startId) {
             thumb.appendChild(backBadge);
         }
 
+                const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.textContent = '⧉';
+        copyBtn.title = 'Скопировать URL костюма';
+        copyBtn.style.cssText =
+            `position:absolute;bottom:2px;left:2px;z-index:3;width:20px;height:20px;padding:0;` +
+            `background:rgba(0,0,0,.65);color:#fff;border:1px solid ${C.border};border-radius:2px;` +
+            `font-size:12px;line-height:1;cursor:pointer;`;
+        copyBtn.addEventListener('click', e => {
+            e.stopPropagation(); // чтобы не надевался костюм
+            const fullUrl = new URL(url, location.origin).href;
+            copyToClipboard(fullUrl).then(() => {
+                copyBtn.textContent = '✓';
+                setTimeout(() => copyBtn.textContent = '⧉', 1000);
+            }).catch(() => {
+                copyBtn.textContent = '✕';
+                setTimeout(() => copyBtn.textContent = '⧉', 1000);
+            });
+        });
+        thumb.appendChild(copyBtn);
         thumb.addEventListener('click', () => toggleCostume(url));
         thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
         thumb.addEventListener('mouseleave', () => {
@@ -840,16 +983,12 @@ function bindPanelEvents(costumeUrls) {
         document.getElementById(`${type}-url-ok-btn`).addEventListener('click', () => handleLoad(type));
     });
 
-    document.getElementById('main-panel-header').addEventListener('click', e => {
-        if (e.target.closest('#wd-theme-toggle') || e.target.closest('#wd-age-toggle')) return;
+    document.getElementById('main-panel-header').addEventListener('click', () => {
         const content = document.getElementById('try-on-panel-content');
-        const wrapper = document.getElementById('try-on-panel-wrapper');
         const toggleBtn = document.getElementById('main-panel-toggle-btn');
         const open = content.style.display === 'none';
         content.style.display = open ? 'flex' : 'none';
         toggleBtn.textContent = open ? '▾' : '▸';
-        toggleBtn.style.transform = open ? 'rotate(0deg)' : '';
-        wrapper.style.paddingBottom = open ? '20px' : '0';
         savePanelState('main', open);
     });
 
@@ -861,6 +1000,11 @@ function bindPanelEvents(costumeUrls) {
     document.getElementById('wd-age-toggle').addEventListener('click', e => {
         e.stopPropagation();
         toggleCatAge();
+    });
+
+    document.getElementById('wd-close-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleWardrobePanel(false);
     });
 
     requestAnimationFrame(() => buildPageGrid(costumeUrls));
@@ -899,6 +1043,7 @@ function rebuildPanel() {
     const wrapper = document.getElementById('try-on-panel-wrapper');
     if (!wrapper) return;
 
+    const wasFabOpen  = wrapper.style.display !== 'none';
     const wasOpen     = document.getElementById('try-on-panel-content')?.style.display !== 'none';
     const searchOpen  = document.getElementById('costume-search-content')?.style.display !== 'none';
     const modelOpen   = document.getElementById('model-loader-content')?.style.display !== 'none';
@@ -908,24 +1053,15 @@ function rebuildPanel() {
     document.getElementById('wd-style')?.remove();
     injectStyles();
 
-    wrapper.style.cssText =
-        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
-        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
-        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
-        `position:relative;overflow:hidden;`;
+    wrapper.style.cssText = wrapperFloatingCSS(wasFabOpen ? 'block' : 'none');
     wrapper.innerHTML = buildPanelInnerHTML(modelSrc);
 
-    const costumeUrls = [];
-    document.querySelectorAll(activeCostumeSelector).forEach(icon => {
-        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
-    });
+    const costumeUrls = mergeCostumeUrls(collectCostumeUrls(activeCostumeSelector));
     bindPanelEvents(costumeUrls);
 
     if (wasOpen) {
         document.getElementById('try-on-panel-content').style.display = 'flex';
         document.getElementById('main-panel-toggle-btn').textContent = '▾';
-        wrapper.style.paddingBottom = '20px';
     }
     if (searchOpen) {
         document.getElementById('costume-search-content').style.display = 'block';
@@ -946,23 +1082,29 @@ function rebuildPanel() {
         [...activeLayers].reverse().forEach(({ id, url, hidden, back }) => renderCostumeLayer(id, url, hidden, back, container, panel));
         updateLayerOrder();
     }
+
+    updateFabTheme();
 }
 
 function extractModelUrl(firstDiv) {
-    const imgEl = document.querySelector('img[src*="/cw3/composited/"]');
-    if (imgEl) return imgEl.src;
+    const first = firstDiv ||
+        document.querySelector('[data-v-59afe5e8][class="first"]') ||
+        document.querySelector('[class="first"]');
 
-    if (firstDiv) {
-        const attr = firstDiv.getAttribute('style') || '';
+    if (first) {
+        const attr = first.getAttribute('style') || '';
         const m = attr.match(/url\(['"]?(.*?)['"]?\)/);
         if (m?.[1]) return m[1];
 
-        const cm = window.getComputedStyle(firstDiv).backgroundImage;
+        const cm = window.getComputedStyle(first).backgroundImage;
         if (cm && cm !== 'none') {
             const cmMatch = cm.match(/url\(['"]?(.*?)['"]?\)/);
             if (cmMatch?.[1]) return cmMatch[1];
         }
     }
+
+    const imgEl = document.querySelector('img[src*="/cw3/composited/"]');
+    if (imgEl) return imgEl.src;
 
     for (const el of document.querySelectorAll('div[style*="/cw3/composited/"]')) {
         const m = el.getAttribute('style')?.match(/url\(['"]?(.*?)['"]?\)/);
@@ -975,28 +1117,10 @@ function extractModelUrl(firstDiv) {
         if (m?.[1]) return m[1];
     }
 
-    const firstElements = document.querySelectorAll('[class*="first"]');
-    for (const el of firstElements) {
-        const cm = window.getComputedStyle(el).backgroundImage;
-        if (cm && cm.includes('/cw3/composited/')) {
-            const match = cm.match(/url\(['"]?(.*?)['"]?\)/);
-            if (match?.[1]) return match[1];
-        }
-    }
-
     return '';
 }
 
-function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
-    let insertPosition, firstDiv;
-    if (typeof firstDivOrPosition === 'string') {
-        insertPosition = firstDivOrPosition;
-        firstDiv = null;
-    } else {
-        insertPosition = 'afterend';
-        firstDiv = firstDivOrPosition;
-        costumeSourceSelector = 'div[style*="background-image: url"]';
-    }
+function injectPanel(firstDiv, costumeSourceSelector) {
     activeCostumeSelector = costumeSourceSelector;
 
     const url = extractModelUrl(firstDiv);
@@ -1007,80 +1131,101 @@ function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
 
     const wrapper = document.createElement('div');
     wrapper.id = 'try-on-panel-wrapper';
-    wrapper.style.cssText =
-        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
-        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
-        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
-        `position:relative;overflow:hidden;`;
+    wrapper.style.cssText = wrapperFloatingCSS('none');
+    document.body.appendChild(wrapper);
 
-    if (insertPosition === 'afterend') {
-        anchorEl.insertAdjacentElement('afterend', document.createElement('hr'));
-        anchorEl.insertAdjacentElement('afterend', wrapper);
-    } else {
-        anchorEl.insertAdjacentHTML(insertPosition, wrapper.outerHTML + '<hr>');
-    }
+    wrapper.innerHTML = buildPanelInnerHTML(DEFAULT_MODEL_URL);
 
-    document.getElementById('try-on-panel-wrapper').innerHTML = buildPanelInnerHTML(DEFAULT_MODEL_URL);
-
-    const costumeUrls = [];
-    document.querySelectorAll(costumeSourceSelector).forEach(icon => {
-        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
-    });
-
-    bindPanelEvents(costumeUrls);
+    bindPanelEvents(mergeCostumeUrls(collectCostumeUrls(costumeSourceSelector)));
     restoreSavedState();
     applySavedPanelState();
+
+    createFAB();
+    if (appStorage.getItem('wd-fab-open', false)) {
+        wrapper.style.display = 'block';
+    }
+
+    startLiveCostumeRescan();
+    startSpaNavigationWatch();
+    startPeriodicRescan();
+}
+
+function rescanModel() {
+    const img = document.getElementById('player-model');
+    if (!img) return;
+
+    const url = extractModelUrl();
+    if (!url) return;
+
+    const currentSrc = img.getAttribute('src') || '';
+    if (!currentSrc || (currentSrc === DEFAULT_MODEL_URL && currentSrc !== url)) {
+        changeModel(url, true);
+    }
+    DEFAULT_MODEL_URL = url;
+}
+
+function rescanPageCostumes() {
+    if (!document.getElementById('try-on-panel-wrapper')) return;
+    buildPageGrid(mergeCostumeUrls(collectCostumeUrls(activeCostumeSelector)));
+    rescanModel();
+}
+
+function startLiveCostumeRescan() {
+    if (window.__wdCostumeObserverStarted) return;
+    window.__wdCostumeObserverStarted = true;
+
+    let debounceTimer = null;
+    new MutationObserver(mutations => {
+        const wrapper = document.getElementById('try-on-panel-wrapper');
+        const isExternalChange = mutations.some(mu => !wrapper || !wrapper.contains(mu.target));
+        if (!isExternalChange) return;
+
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(rescanPageCostumes, 250);
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'style', 'class'] });
+}
+
+function startSpaNavigationWatch() {
+    if (window.__wdSpaWatchStarted) return;
+    window.__wdSpaWatchStarted = true;
+
+    let lastUrl = location.href;
+    const onNavigate = () => {
+        if (location.href === lastUrl) return;
+        lastUrl = location.href;
+        setTimeout(rescanPageCostumes, 300);
+        setTimeout(rescanPageCostumes, 900);
+    };
+
+    ['pushState', 'replaceState'].forEach(fnName => {
+        const original = history[fnName];
+        history[fnName] = function (...args) {
+            const result = original.apply(this, args);
+            onNavigate();
+            return result;
+        };
+    });
+
+    window.addEventListener('popstate', onNavigate);
+    window.addEventListener('hashchange', onNavigate);
+    setInterval(onNavigate, 800);
+}
+
+function startPeriodicRescan() {
+    if (window.__wdPeriodicRescanStarted) return;
+    window.__wdPeriodicRescanStarted = true;
+    setInterval(rescanPageCostumes, 1500);
 }
 
 (function () {
-    const isSettingsCostumes = /\/settings_costumes/.test(location.pathname);
-
-    function tryInsertSettings() {
-        if (document.getElementById('try-on-panel-wrapper')) return true;
-
-        const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
-        if (!col3) return false;
-
-        const firstDiv =
-            col3.querySelector('[class="first"]') ||
-            col3.querySelector('[class*="first"]') ||
-            document.querySelector('[data-v-59afe5e8][class="first"]') ||
-            document.querySelector('[class="first"]');
-        if (!firstDiv) return false;
-
-        injectPanel(col3, firstDiv);
+    function boot() {
+        if (document.getElementById('try-on-panel-wrapper') || !document.body) return false;
+        const firstDiv = document.querySelector('[class="first"]');
+        injectPanel(firstDiv, COSTUME_ICON_SELECTOR);
         return true;
     }
 
-    function tryInsertRabbit() {
-        if (document.getElementById('try-on-panel-wrapper')) return true;
-
-        const mainDiv = document.getElementById('main');
-        if (!mainDiv) return false;
-
-        const hasCostumeIcons = document.querySelectorAll('#main button div[style*="background-image: url"]').length > 0;
-        const hasModelImg = !!document.querySelector('img[src*="/cw3/composited/"]') ||
-                             !!document.querySelector('div[style*="composited"]');
-        if (!hasCostumeIcons && !hasModelImg) return false;
-
-        injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
-        return true;
-    }
-
-    const tryInsert = isSettingsCostumes ? tryInsertSettings : tryInsertRabbit;
-
-    if (!tryInsert()) {
-        const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        let attempts = 0;
-        const poll = setInterval(() => {
-            attempts++;
-            if (tryInsert() || attempts > 40) {
-                clearInterval(poll);
-                observer.disconnect();
-            }
-        }, 500);
+    if (!boot()) {
+        const poll = setInterval(() => { if (boot()) clearInterval(poll); }, 200);
     }
 })();
