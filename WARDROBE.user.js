@@ -1,19 +1,148 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.1.5
+// @version      1.2.6
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
+// @match        http*://*.catwar.net/settings*
+// @match        http*://*.catwar.su/settings*
 // @match        http*://*.catwar.net/rabbit*
 // @match        http*://*.catwar.su/rabbit*
-// @match        http*://*.catwar.net/settings_costumes*
-// @match        http*://*.catwar.su/settings_costumes*
-// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
-// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=catwar.su
 // @license      MIT
-// @grant        none
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_xmlhttpRequest
+// @connect      raw.githubusercontent.com
+// @updateURL    https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
+// @downloadURL  https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js
 // ==/UserScript==
+
+const appStorage = {
+    useGM: typeof GM_setValue !== "undefined",
+
+    setItem: (key, value) => {
+        const stringValue = JSON.stringify(value);
+        if (appStorage.useGM) {
+            GM_setValue(key, stringValue);
+        } else {
+            localStorage.setItem(key, stringValue);
+        }
+    },
+
+    getItem: (key, defaultValue = null) => {
+        let value = null;
+        if (appStorage.useGM) {
+            value = GM_getValue(key);
+        } else {
+            value = localStorage.getItem(key);
+        }
+
+        try {
+            return value ? JSON.parse(value) : defaultValue;
+        } catch (e) {
+            return value !== null ? value : defaultValue;
+        }
+    },
+
+    removeItem: (key) => {
+        if (appStorage.useGM) {
+            GM_deleteValue(key);
+        } else {
+            localStorage.removeItem(key);
+        }
+    }
+};
+
+const UPDATE_URL   = 'https://raw.githubusercontent.com/Achterstem/WARDROBE/main/WARDROBE.user.js';
+const UPDATE_PAGE  = UPDATE_URL;
+const CURRENT_VERSION = (typeof GM_info !== 'undefined' && GM_info?.script?.version) || '1.7.4';
+
+let updateState = { status: 'idle', latest: null };
+
+function compareVersions(a, b) {
+    const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d !== 0) return d > 0 ? 1 : -1;
+    }
+    return 0;
+}
+
+function fetchRemoteText(url) {
+    return new Promise((resolve, reject) => {
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'GET', url, nocache: true, timeout: 10000,
+                onload: r => (r.status >= 200 && r.status < 300) ? resolve(r.responseText) : reject(new Error('HTTP ' + r.status)),
+                onerror: reject,
+                ontimeout: () => reject(new Error('timeout'))
+            });
+        } else {
+            fetch(url, { cache: 'no-store' })
+                .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))
+                .then(resolve, reject);
+        }
+    });
+}
+
+function openUpdatePage() {
+    if (!window.open(UPDATE_PAGE, '_blank')) location.href = UPDATE_PAGE;
+}
+
+function renderUpdateBtn() {
+    const btn = document.getElementById('wd-update-btn');
+    if (!btn) return;
+    const s = updateState;
+    const view = {
+        idle:      { text: `⟳ v${CURRENT_VERSION}`, title: 'Проверить обновления' },
+        checking:  { text: '⟳ …',                   title: 'Проверка…' },
+        uptodate:  { text: '✓ актуальная',          title: 'Установлена последняя версия' },
+        available: { text: `⬆ v${s.latest}`,        title: 'Доступна новая версия, клик сюда!' },
+        error:     { text: '✕ ошибка',              title: 'Не удалось проверить обновления' },
+    }[s.status];
+    btn.textContent = view.text;
+    btn.title = view.title;
+}
+
+function resetUpdateBtnLater(expectedStatus) {
+    setTimeout(() => {
+        if (updateState.status === expectedStatus) {
+            updateState = { status: 'idle', latest: updateState.latest };
+            renderUpdateBtn();
+        }
+    }, 3000);
+}
+
+async function checkForUpdate() {
+    if (updateState.status === 'checking') return;
+    if (updateState.status === 'available') { openUpdatePage(); return; }
+
+    updateState = { status: 'checking', latest: null };
+    renderUpdateBtn();
+    try {
+        const text = await fetchRemoteText(`${UPDATE_URL}?t=${Date.now()}`);
+        const m = text.match(/@version\s+(\S+)/);
+        if (!m) throw new Error('version not found');
+        const latest = m[1];
+
+        if (compareVersions(latest, CURRENT_VERSION) > 0) {
+            updateState = { status: 'available', latest };
+            renderUpdateBtn();
+            openUpdatePage();
+        } else {
+            updateState = { status: 'uptodate', latest };
+            renderUpdateBtn();
+            resetUpdateBtnLater('uptodate');
+        }
+    } catch (e) {
+        updateState = { status: 'error', latest: null };
+        renderUpdateBtn();
+        resetUpdateBtnLater('error');
+    }
+}
 
 const PASS = [
     { name: "МИФИЧЕСКИЕ ЗВЕРИ", id: 12025 },      { name: "ЕГИПЕТ", id: 12053 },
@@ -28,7 +157,7 @@ const PASS = [
     { name: "ПЕРВОБЫТНЫЙ МИР", id: 102899 },      { name: "МГНОВЕНИЯ ВЕСНЫ", id: 103309 },
     { name: "ПУТЕШЕСТВИЕ В КОСМОС", id: 103644 }, { name: "КИБЕРПАНК", id: 103813 },
     { name: "В ПОКОЯХ ЛЕСА", id: 104273 },        { name: "СЕРДЦЕ ПУСТЫНИ", id: 104575 },
-    { name: "ДРЕВНЯЯ ГРЕЦИЯ", id: 105322 },
+    { name: "ДРЕВНЯЯ ГРЕЦИЯ", id: 105322 },       { name: "ПРИРОДНЫЕ СТИХИИ", id: 106592 },
 ];
 
 const PASS_PASS = {
@@ -48,13 +177,23 @@ const PASS_PASS = {
             [103662,103669],[103689,103697],[103711,103738],[103782,103812],[103933,103950],[104039,104044],
             [104066,104068],[104074,104081],[104092,104333],[104373,104402],[104418,104450],[104515,104630],
             [104951,105036],[105107,105171],[105212,105242],[105285,105300],[105317,105449],[105770,105860],
-            [105880,106313],[106316,106509],[106520,106575]
+            [105880,106313],[106316,106509],[106520,106575], [106592,106704],[106781,106796],
+            [106807,106857], [106860,106929]
         ].flatMap(([a,b=a])=>Array.from({length:b-a+1},(_,i)=>a+i)),
         color: '#752424bd', bgColor: '#914f4f38', label: 'В ПРОПУСКЕ'
     }
 };
 
-    const COSTUME_COLLECTIONS = {
+const BACK_COSTUME_IDS = new Set([
+    106696, 106697, 106698, 106699, 106700, 106701, 106702, 106703, 106704
+]);
+
+function isBackCostumeId(costumeID) {
+    const n = parseInt(costumeID, 10);
+    return !Number.isNaN(n) && BACK_COSTUME_IDS.has(n);
+}
+
+const COSTUME_COLLECTIONS = {
     DE: { ids: [916, 917, 918, 919], color: '#4b2475c7', bgColor: '#83766740', label: 'ДС / СС' },
     MANUSCRIPT: { ids: [9126, 9127, 9128, 9129, 9130, 9131, 9132, 9133, 9134, 9135, 9136, 9137], color: '#247544c7', bgColor: '#83766740', label: 'МАНУСКРИПТ' },
     CAULDRON: { ids: [1750, 1751, 1752, 1753, 1754, 1755, 1756, 1757, 1758, 1759, 1760, 1761, 1762, 1763, 1764, 1765, 1766, 1767, 1768, 1769], color: '#247544c7', bgColor: '#83766740', label: 'КОТЁЛ' },
@@ -89,20 +228,154 @@ const THEMES = {
     }
 };
 
-let currentTheme = localStorage.getItem('wd-theme') || 'dark';
+const CAT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="30" height="30" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M10 10 L22 18 Q32 15 42 18 L54 10 L54 34 Q54 54 32 54 Q10 54 10 34 Z"/>
+<circle cx="22" cy="34" r="7"/><circle cx="42" cy="34" r="7"/>
+<path d="M29 34 Q32 31 35 34"/>
+<circle cx="22" cy="34" r="1.6" fill="currentColor" stroke="none"/>
+<circle cx="42" cy="34" r="1.6" fill="currentColor" stroke="none"/>
+<path d="M30 44.5 L34 44.5 L32 47 Z" fill="currentColor"/>
+<path d="M32 47 V49 M32 49 Q29.5 51 27.5 49 M32 49 Q34.5 51 36.5 49"/>
+<path d="M13 47 L4 45 M13 51 L5 53 M51 47 L60 45 M51 51 L59 53" stroke-width="2"/>
+</svg>`;
+
+let currentTheme = appStorage.getItem('wd-theme') || 'dark';
+let catAge = parseInt(appStorage.getItem('wd-cat-age', 0), 10);
 let C = { ...THEMES[currentTheme] };
 let DEFAULT_MODEL_URL = '';
+let activeModelUrl = '';
 let layerCounter = 0;
 let pendingUrl = { model: null, costume: null };
 let searchStartID = 1;
 let searchItemsPerPage = 40;
 let activeLayers = [];
+let activeCostumeSelector = 'img[src*="/cw3/cats/"], [style*="/cw3/cats/"]';
+
+const COSTUME_ICON_SELECTOR = 'img[src*="/cw3/cats/"], [style*="/cw3/cats/"]';
+
+function getCostumeUrl(idOrUrl, age = catAge) {
+    if (typeof idOrUrl === 'number' || /^\d+$/.test(idOrUrl)) {
+        return `/cw3/cats/${age}/costume/${idOrUrl}.png`;
+    }
+    return idOrUrl.replace(/\/cw3\/cats\/(-?\d+)\//, `/cw3/cats/${age}/`);
+}
+
+function getElementCostumeUrl(el) {
+    if (!el) return '';
+    if (el.tagName === 'IMG') {
+        return el.getAttribute('src') || '';
+    }
+    const style = el.getAttribute('style') || '';
+    const m = style.match(/url\(['"]?(.*?)['"]?\)/);
+    return m?.[1] || '';
+}
+
+function collectCostumeUrls(selector) {
+    const wrapper = document.getElementById('try-on-panel-wrapper');
+    const seen = new Set();
+    const urls = [];
+    document.querySelectorAll(selector).forEach(icon => {
+        if (wrapper && wrapper.contains(icon)) return;
+        if (icon.getAttribute('class') === 'first') return;
+        const src = getElementCostumeUrl(icon);
+        if (!src.includes('/cw3/cats/')) return;
+        const key = src.match(/costume\/(\d+)\.png/)?.[1] || src;
+        if (seen.has(key)) return;
+        seen.add(key);
+        urls.push(src);
+    });
+    return urls;
+}
+
+let discoveredCostumeUrls = [];
+
+function mergeCostumeUrls(newUrls) {
+    const seen = new Set(discoveredCostumeUrls.map(u => u.match(/costume\/(\d+)\.png/)?.[1] || u));
+    newUrls.forEach(u => {
+        const key = u.match(/costume\/(\d+)\.png/)?.[1] || u;
+        if (seen.has(key)) return;
+        seen.add(key);
+        discoveredCostumeUrls.push(u);
+    });
+    return discoveredCostumeUrls;
+}
+
+function saveState() {
+    const layers = Array.from(document.querySelectorAll('.costume-controller')).map(ctrl => {
+        const id = ctrl.dataset.layerId;
+        const l = activeLayers.find(x => x.id === id);
+        return l ? { url: l.url, hidden: l.hidden, back: !!l.back } : null;
+    }).filter(Boolean);
+
+    const state = {
+        model: document.getElementById('player-model')?.getAttribute('src') || DEFAULT_MODEL_URL,
+        layers: layers
+    };
+    appStorage.setItem('wd-state', state);
+}
+
+function restoreSavedState() {
+    try {
+        const state = appStorage.getItem('wd-state');
+        if (state) {
+            const isValidModel = state.model
+                && !state.model.includes('/cw3/composited/');
+            if (isValidModel) {
+                changeModel(state.model, true);
+            }
+            if (state.layers) {
+                [...state.layers].reverse().forEach(l => addCostumeLayer(l.url, l.hidden, true, l.back ?? null));
+            }
+        }
+    } catch(e) {}
+}
 
 function applyTheme(theme) {
     currentTheme = theme;
     C = { ...THEMES[theme] };
-    localStorage.setItem('wd-theme', theme);
+    appStorage.setItem('wd-theme', theme);
     rebuildPanel();
+}
+
+function getPanelState() {
+    return appStorage.getItem('wd-panel-open', { main: true, search: false, model: false, costume: false });
+}
+
+function savePanelState(key, value) {
+    const state = getPanelState();
+    state[key] = value;
+    appStorage.setItem('wd-panel-open', state);
+}
+
+function toggleCatAge() {
+    catAge = catAge === 0 ? -1 : 0;
+    appStorage.setItem('wd-cat-age', catAge);
+    const ageToggleBtn = document.getElementById('wd-age-toggle');
+    if (ageToggleBtn) {
+        ageToggleBtn.textContent = catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК';
+        ageToggleBtn.title = catAge === 0
+            ? 'Переключить на котёнка'
+            : 'Переключить на взрослого';
+    }
+
+    activeLayers = activeLayers.map(l => {
+        const costumeID = l.url.match(/costume\/(\d+)\.png/)?.[1];
+        if (costumeID) {
+            const newUrl = getCostumeUrl(costumeID, catAge);
+            const imgEl = document.getElementById(l.id);
+            if (imgEl) imgEl.src = newUrl;
+
+            const ctrlEl = document.querySelector(`.costume-controller[data-layer-id="${l.id}"] div[style*="background-image"]`);
+            if (ctrlEl) ctrlEl.style.backgroundImage = `url('${newUrl}')`;
+
+            return { ...l, url: newUrl };
+        }
+        return l;
+    });
+
+    saveState();
+
+    refreshThumbnails();
 }
 
 function injectStyles() {
@@ -117,32 +390,84 @@ function injectStyles() {
         .sortable-ghost { opacity: .4; background: ${C.glass}; border-radius: 2px; }
         @keyframes wd-fade-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
         #try-on-panel-content { animation: wd-fade-in .25s ease; }
-        #wd-theme-toggle {
-            border: 2px solid ${C.gold}; color: ${C.gold};
-            font-size: 14px; cursor: pointer; padding: 3px 7px; border-radius: 50px;
-            transition: border-color .15s, color .15s; line-height: 1.4; flex-shrink: 0;
+        #wd-theme-toggle, #wd-age-toggle, #wd-update-btn {
+            border: 2px solid ${C.gold}; color: ${C.gold}; background: transparent;
+            font-size: 13px; cursor: pointer; padding: 3px 8px; border-radius: 50px;
+            transition: border-color .15s, color .15s; line-height: 1.4; flex-shrink: 0; font-family: inherit; font-weight: 600;
         }
-        #wd-theme-toggle:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; background-color: ${C.bg} !important; }
+        #wd-theme-toggle:hover, #wd-age-toggle:hover, #wd-update-btn:hover { border-color: ${C.gold} !important; color: ${C.gold} !important; background-color: ${C.bg} !important; }
+        #wd-fab:hover { transform: scale(1.08); }
         @media (max-width: 768px) {
             .w-flex { flex-direction: column !important; align-items: stretch !important; }
             #control-col { margin-right: 0 !important; margin-bottom: 20px !important; }
             .s-ctrl { flex-direction: column !important; gap: 8px !important; }
             .s-ctrl > * { width: 100% !important; box-sizing: border-box; }
+            #try-on-panel-wrapper { right: 10px !important; left: 10px !important; width: auto !important; bottom: 82px !important; max-height: 75vh !important; }
+            #wd-fab { bottom: 14px !important; right: 14px !important; }
         }
     `;
     document.head.appendChild(style);
 }
 
-const thumbCSS = (url, h) =>
+function wrapperFloatingCSS(display) {
+    return `position:fixed;bottom:90px;right:20px;z-index:2147483000;` +
+        `border:1px solid ${C.border};border-radius:8px;background:${C.panel};` +
+        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
+        `padding:0 20px 20px;color:${C.text};box-sizing:border-box;` +
+        `width:90vw;max-width:1300px;max-height:80vh;overflow-y:auto;overflow-x:hidden;` +
+        `box-shadow:0 6px 28px ${C.shadow};display:${display};`;
+}
+
+function createFAB() {
+    let fab = document.getElementById('wd-fab');
+    if (fab) { updateFabTheme(); return fab; }
+
+    fab = document.createElement('button');
+    fab.id = 'wd-fab';
+    fab.type = 'button';
+    fab.title = 'WARDROBE';
+    fab.innerHTML = CAT_ICON_SVG;
+    document.body.appendChild(fab);
+    updateFabTheme();
+
+    fab.addEventListener('click', () => toggleWardrobePanel());
+    fab.addEventListener('mouseenter', () => fab.style.transform = 'scale(1.08)');
+    fab.addEventListener('mouseleave', () => fab.style.transform = 'scale(1)');
+    return fab;
+}
+
+function updateFabTheme() {
+    const fab = document.getElementById('wd-fab');
+    if (!fab) return;
+    fab.style.cssText =
+        `position:fixed;bottom:20px;right:20px;z-index:2147483001;` +
+        `width:52px;height:52px;border-radius:50%;` +
+        `background:${C.panel};border:2px solid ${C.gold};color:${C.gold};` +
+        `font-size:24px;line-height:1;cursor:pointer;` +
+        `display:flex;align-items:center;justify-content:center;` +
+        `box-shadow:0 3px 14px ${C.shadow};transition:transform .15s ease,border-color .15s;`;
+}
+
+function toggleWardrobePanel(forceOpen) {
+    const wrapper = document.getElementById('try-on-panel-wrapper');
+    if (!wrapper) return;
+    const isOpen = wrapper.style.display !== 'none';
+    const open = forceOpen === undefined ? !isOpen : forceOpen;
+    wrapper.style.display = open ? 'block' : 'none';
+    appStorage.setItem('wd-fab-open', open);
+}
+
+const thumbCSS = (url, h, isApplied = false) =>
     `width:100%;height:${h};background:url('${url}') center/contain no-repeat;` +
-    `cursor:pointer;border:1px solid ${C.border};border-radius:2px;box-sizing:border-box;` +
+    `cursor:pointer;border:1px solid ${isApplied ? C.gold : C.border};border-radius:2px;box-sizing:border-box;` +
     `transition:border-color .15s,background-color .15s;`;
 
 function loaderHTML(type, title, withRestore) {
-    const inputS = `width:100%;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};` +
-        `border-radius:2px;font-size:16px;box-sizing:border-box;outline:none;font-family:inherit;`;
+    const inputS = `padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};` +
+        `border-radius:2px;font-size:14px;box-sizing:border-box;outline:none;font-family:inherit;`;
     const btnS = col => `width:100%;padding:5px 8px;background:${col};color:${C.text};border:1px solid ${C.border};` +
-        `border-radius:2px;cursor:pointer;font-size:16px;letter-spacing:.06em;font-family:inherit;transition:border-color .15s,color .15s;`;
+        `border-radius:2px;cursor:pointer;font-size:14px;letter-spacing:.06em;font-family:inherit;transition:border-color .15s,color .15s;`;
+
     return `
         <div style="margin-bottom:6px;order:${type === 'model' ? 3 : 4};">
             <div id="${type}-loader-header" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:6px 0;border-top:1px solid ${C.border};">
@@ -150,12 +475,52 @@ function loaderHTML(type, title, withRestore) {
                 <button id="${type}-loader-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:12px;cursor:pointer;padding:0;">▸</button>
             </div>
             <div id="${type}-loader-content" style="display:none;padding:6px 0;">
-                <input type="text" id="${type}-url-input" placeholder="URL изображения" style="${inputS} margin-bottom:5px;">
+                <div style="display:flex;gap:4px;margin-bottom:5px;">
+                    <input type="text" id="${type}-url-input" placeholder="URL изображения" style="${inputS} width:100%; margin-bottom:0;">
+                    <button id="${type}-url-ok-btn" style="${btnS(C.glass)} width:auto;padding:5px 12px;font-weight:bold;">ОК</button>
+                </div>
                 <input type="file" id="${type}-file-input" style="display:none;" accept="image/png,image/jpeg">
                 <button id="${type}-select-file-btn" style="${btnS(C.glass)} margin-bottom:4px;">выбрать файл</button>
                 ${withRestore ? `<button id="restore-model-btn" style="${btnS(C.glass)}">вернуть оригинал</button>` : ''}
+                ${type === 'model' ? `<div id="wd-saved-models-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:6px;"></div>` : ''}
             </div>
         </div>`;
+}
+
+function renderSavedModels() {
+    const grid = document.getElementById('wd-saved-models-grid');
+    if (!grid) return;
+    const models = appStorage.getItem('wd-models', []);
+    grid.innerHTML = '';
+    models.forEach(url => {
+        const thumb = document.createElement('div');
+        thumb.style.cssText = thumbCSS(url, '45px') + `position:relative;`;
+        thumb.addEventListener('click', () => changeModel(url));
+
+        const del = document.createElement('button');
+        del.textContent = '✕';
+        del.style.cssText = `position:absolute;top:0;right:0;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:9px;padding:2px 4px;cursor:pointer;line-height:1;border-bottom-left-radius:3px;`;
+        del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let m = appStorage.getItem('wd-models', []);
+            const idx = m.indexOf(url);
+            const wasActive = url === activeModelUrl;
+            m = m.filter(x => x !== url);
+            appStorage.setItem('wd-models', m);
+            renderSavedModels();
+
+            if (wasActive) {
+                if (m.length > 0) {
+                    const nextIdx = Math.min(idx, m.length - 1);
+                    changeModel(m[nextIdx]);
+                } else {
+                    changeModel(DEFAULT_MODEL_URL);
+                }
+            }
+        });
+        thumb.appendChild(del);
+        grid.appendChild(thumb);
+    });
 }
 
 function buildPanelInnerHTML(modelSrc) {
@@ -173,76 +538,84 @@ function buildPanelInnerHTML(modelSrc) {
 
     return `
         <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold},transparent);"></div>
-        <div id="main-panel-header" style="display:flex;align-items:center;cursor:pointer;padding:14px 0;gap:12px;">
-            <button id="main-panel-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:16px;cursor:pointer;padding:0;line-height:1;transition:transform .2s;">▸</button>
-            <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
-            <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
+        <div id="wd-top-bar" style="display:flex;align-items:center;justify-content:flex-end;padding:14px 0 10px;gap:6px;">
+            <button id="wd-update-btn" title="Проверить обновления">⟳ v${CURRENT_VERSION}</button>
+            <button id="wd-age-toggle" title="${catAge === 0 ? 'Переключить на котёнка' : 'Переключить на взрослого'}">${catAge === 0 ? 'ВЗРОСЛЫЙ' : 'КОТЁНОК'}</button>
             <button id="wd-theme-toggle" title="${currentTheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}">${currentTheme === 'dark' ? '☀' : '☾'}</button>
         </div>
-        <div id="try-on-panel-content" style="display:none;flex-direction:column;padding-bottom:20px;">
-            <div class="w-flex" style="display:flex;align-items:flex-start;gap:24px;">
-                <div id="control-col" style="display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;width:190px;">
-                    <div style="text-align:center;margin-bottom:16px;">
-                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
-                        <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 30px;transform:scale(1.4);transform-origin:center;">
-                            <img id="player-model" src="${modelSrc}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
+
+        <div class="wd-tray" style="border:1px solid ${C.border};border-radius:6px;margin-bottom:12px;overflow:hidden;">
+            <div id="main-panel-header" style="display:flex;align-items:center;cursor:pointer;padding:10px 12px;gap:10px;background:${C.glass};">
+                <button id="main-panel-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:16px;cursor:pointer;padding:0;line-height:1;transition:transform .2s;">▸</button>
+                <h2 class="wd-title" style="font-size:13px;margin:0;color:${C.gold};letter-spacing:.2em;font-weight:600;">ПРИМЕРКА КОСТЮМОВ</h2>
+                <div style="flex-grow:1;height:1px;background:linear-gradient(90deg,${C.border},transparent);margin-left:8px;"></div>
+            </div>
+            <div id="try-on-panel-content" style="display:none;flex-direction:column;padding:16px 12px 18px;">
+                <div class="w-flex" style="display:flex;align-items:flex-start;gap:24px;">
+                    <div id="control-col" style="display:flex;flex-direction:column;align-items:stretch;flex-shrink:0;width:190px;">
+                        <div style="text-align:center;margin-bottom:16px;">
+                            <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:35px;text-transform:uppercase;">предпросмотр</div>
+                            <div class="try-on-container" style="position:relative;width:100px;height:150px;margin:0 auto 30px;transform:scale(1.4);transform-origin:center;">
+                                <img id="player-model" ${modelSrc ? `src="${modelSrc}"` : ''} style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:1;">
+                            </div>
+                            <div style="display:flex;gap:6px;padding-top: 6px;">
+                                <button id="save-preview-100" title="Сохранить 100×150"
+                                    style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
+                                    ⭳ 100×150</button>
+                                <button id="save-preview-200" title="Сохранить 200×300"
+                                    style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
+                                    ⭳ 200×300</button>
+                            </div>
                         </div>
-                        <div style="display:flex;gap:6px;padding-top: 6px;">
-                            <button id="save-preview-100" title="Сохранить 100×150"
-                                style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
-                                ⭳ 100×150</button>
-                            <button id="save-preview-200" title="Сохранить 200×300"
-                                style="flex:1;padding:5px 4px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:11px;letter-spacing:.04em;font-family:inherit;transition:border-color .15s,color .15s;">
-                                ⭳ 200×300</button>
+                        <div style="display:flex;flex-direction:column;">
+                            ${loaderHTML('model', 'Заменить модель', true)}
+                            ${loaderHTML('costume', 'Загрузить костюм', false)}
+                        </div>
+                        <div style="margin-top:10px;">
+                            <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:6px;text-transform:uppercase;">слои</div>
+                            <div id="try-on-controller-panel" style="max-height:320px;overflow-y:auto;padding:4px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                                <p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>
+                            </div>
                         </div>
                     </div>
-                    <div style="display:flex;flex-direction:column;">
-                        ${loaderHTML('model', 'Заменить модель', true)}
-                        ${loaderHTML('costume', 'Загрузить костюм', false)}
+                    <div style="flex-grow:1;min-width:0;">
+                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:8px;text-transform:uppercase;">костюмы на странице</div>
+                        <div id="try-on-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:3px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
                     </div>
-                    <div style="margin-top:10px;">
-                        <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:6px;text-transform:uppercase;">слои</div>
-                        <div id="try-on-controller-panel" style="max-height:320px;overflow-y:auto;padding:4px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                            <p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>
-                        </div>
-                    </div>
-                </div>
-                <div style="flex-grow:1;min-width:0;">
-                    <div style="font-size:12px;letter-spacing:.18em;color:${C.muted};margin-bottom:8px;text-transform:uppercase;">костюмы на странице</div>
-                    <div id="try-on-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:3px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
                 </div>
             </div>
-            <div style="margin-top:20px;border-top:4px solid ${C.border};padding-top:14px;">
-                <div id="costume-search-header" style="display:flex;align-items:center;background:linear-gradient(to right,${C.border} 0%,transparent 100%);padding:10px;font-weight:600;border-radius:15px;cursor:pointer;gap:10px;margin-bottom:4px;">
-                    <button id="costume-search-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:14px;cursor:pointer;padding:0;line-height:1;">▸</button>
-                    <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
+        </div>
+
+        <div class="wd-tray" style="border:1px solid ${C.border};border-radius:6px;overflow:hidden;">
+            <div id="costume-search-header" style="display:flex;align-items:center;cursor:pointer;padding:10px 12px;gap:10px;background:${C.glass};">
+                <button id="costume-search-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:14px;cursor:pointer;padding:0;line-height:1;">▸</button>
+                <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
+            </div>
+            <div id="costume-search-content" style="display:none;padding:14px 12px 16px;">
+                <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+                    <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;">ПРОПУСКИ</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        ${quickBtns}
+                    </div>
+                    <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;margin-top:4px;">ДРУГИЕ КОСТЮМЫ</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                        ${collectionBtns}
+                    </div>
                 </div>
-                <div id="costume-search-content" style="display:none;padding-top:12px;">
-                    <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
-                        <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;">ПРОПУСКИ</div>
-                        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                            ${quickBtns}
-                        </div>
-                        <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;margin-top:4px;">ДРУГИЕ КОСТЮМЫ</div>
-                        <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                            ${collectionBtns}
-                        </div>
-                    </div>
-                    <div class="s-ctrl" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-                        <span style="font-size:12px;letter-spacing:.08em;color:${C.muted};white-space:nowrap;">ID от:</span>
-                        <input type="text" id="search-start-id-input" placeholder="число"
-                            style="width:80px;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:2px;font-size:12px;font-family:inherit;box-sizing:border-box;">
-                        <button id="search-range-btn"
-                            style="padding:5px 14px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:10px;letter-spacing:.1em;font-family:inherit;transition:border-color .15s,color .15s;">
-                            НАЙТИ</button>
-                    </div>
-                    <div class="s-ctrl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
-                        <button id="prev-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8592;</button>
-                        <span id="current-id-display" style="font-size:12px;letter-spacing:.1em;color:${C.muted};">1 — 40</span>
-                        <button id="next-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8594;</button>
-                    </div>
-                    <div id="costume-search-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
+                <div class="s-ctrl" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                    <span style="font-size:12px;letter-spacing:.08em;color:${C.muted};white-space:nowrap;">ID от:</span>
+                    <input type="text" id="search-start-id-input" placeholder="число"
+                        style="width:80px;padding:5px 8px;background:${C.bg};color:${C.text};border:1px solid ${C.border};border-radius:2px;font-size:12px;font-family:inherit;box-sizing:border-box;">
+                    <button id="search-range-btn"
+                        style="padding:5px 14px;background:${C.glass};color:${C.text};border:1px solid ${C.border};border-radius:2px;cursor:pointer;font-size:10px;letter-spacing:.1em;font-family:inherit;transition:border-color .15s,color .15s;">
+                        НАЙТИ</button>
                 </div>
+                <div class="s-ctrl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                    <button id="prev-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8592;</button>
+                    <span id="current-id-display" style="font-size:12px;letter-spacing:.1em;color:${C.muted};">1 — 40</span>
+                    <button id="next-page-btn" style="background:none;border:none;color:${C.muted};font-size:35px;cursor:pointer;padding:0;transition:color .15s;line-height:1;">&#8594;</button>
+                </div>
+                <div id="costume-search-thumbnails" style="display:grid;grid-template-columns:repeat(1,1fr);gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;width:100%;box-sizing:border-box;"></div>
             </div>
         </div>`;
 }
@@ -254,11 +627,24 @@ function gridCols(panelId, minW, gap, fallback) {
 }
 
 function updateLayerOrder() {
-    const layers = document.getElementById('try-on-controller-panel')?.querySelectorAll('.costume-controller');
-    if (!layers) return;
-    layers.forEach((ctrl, i) => {
+    const panel = document.getElementById('try-on-controller-panel');
+    const ctrls = panel?.querySelectorAll('.costume-controller');
+    if (!ctrls) return;
+
+    const frontCtrls = [];
+    const backCtrls = [];
+    ctrls.forEach(ctrl => {
+        const layer = activeLayers.find(l => l.id === ctrl.dataset.layerId);
+        (layer?.back ? backCtrls : frontCtrls).push(ctrl);
+    });
+
+    frontCtrls.forEach((ctrl, i) => {
         const img = document.getElementById(ctrl.dataset.layerId);
-        if (img) img.style.zIndex = 1000 + (layers.length - i) * 10;
+        if (img) img.style.zIndex = 1000 + (frontCtrls.length - i) * 10;
+    });
+    backCtrls.forEach((ctrl, i) => {
+        const img = document.getElementById(ctrl.dataset.layerId);
+        if (img) img.style.zIndex = -((backCtrls.length - i) * 10);
     });
 }
 
@@ -267,16 +653,35 @@ function removeLayer(id) {
     document.querySelector(`.costume-controller[data-layer-id="${id}"]`)?.remove();
     activeLayers = activeLayers.filter(l => l.id !== id);
     updateLayerOrder();
+    refreshThumbnails();
+    saveState();
     const panel = document.getElementById('try-on-controller-panel');
     if (panel?.children.length === 0)
-        panel.innerHTML = `<p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;">нажмите на костюмы</p>`;
+        panel.innerHTML = `<p style="font-style:italic;color:${C.muted};font-size:13px;text-align:center;padding:10px 0;margin:0;">нажмите на костюмы</p>`;
+}
+
+function refreshThumbnails() {
+    const sp = document.getElementById('costume-search-thumbnails');
+    if (sp && sp.children.length > 0) {
+        const searchContent = document.getElementById('costume-search-content');
+        const isSearchVisible = searchContent && searchContent.style.display !== 'none';
+        if (isSearchVisible) {
+            updateSearchDisplay(searchStartID);
+        } else {
+            sp.innerHTML = '';
+        }
+    }
+    const pageThumbnails = document.querySelectorAll('#try-on-thumbnails > div');
+    if (pageThumbnails.length > 0) {
+        buildPageGrid(mergeCostumeUrls(collectCostumeUrls(activeCostumeSelector)));
+    }
 }
 
 function getOrderedLayerImages() {
     const container = document.querySelector('#try-on-panel-content .try-on-container');
     if (!container) return [];
     return Array.from(container.querySelectorAll('img'))
-        .filter(img => img.complete && img.naturalWidth > 0)
+        .filter(img => img.complete && img.naturalWidth > 0 && img.style.display !== 'none')
         .sort((a, b) => (parseInt(a.style.zIndex) || 0) - (parseInt(b.style.zIndex) || 0));
 }
 
@@ -304,22 +709,35 @@ function exportPreview(width, height) {
     }, 'image/png');
 }
 
-function changeModel(url) {
+function changeModel(url, skipSave = false) {
     const img = document.getElementById('player-model');
     if (!img || !url) return;
     img.src = url;
+    activeModelUrl = url;
     document.getElementById('model-url-input').value = '';
     document.getElementById('model-file-input').value = '';
     pendingUrl.model = null;
+
+    if (url !== DEFAULT_MODEL_URL && !url.includes('/cw3/composited/')) {
+        let models = appStorage.getItem('wd-models', []);
+        if (!models.includes(url)) {
+            models.push(url);
+            if (models.length > 10) models = models.slice(models.length - 10);
+            appStorage.setItem('wd-models', models);
+            renderSavedModels();
+        }
+    }
+
+    if (!skipSave) saveState();
 }
 
-function renderCostumeLayer(id, url, container, panel) {
+function renderCostumeLayer(id, url, hidden, back, container, panel) {
     panel.querySelector('p')?.remove();
 
     const img = document.createElement('img');
     img.id = id;
     img.src = url;
-    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:100;`;
+    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:100;display:${hidden ? 'none' : 'block'};`;
     container.appendChild(img);
 
     const costumeID = url.match(/costume\/(\d+)\.png/)?.[1] ?? '—';
@@ -328,28 +746,84 @@ function renderCostumeLayer(id, url, container, panel) {
     ctrl.dataset.layerId = id;
     ctrl.style.cssText =
         `display:flex;align-items:center;gap:6px;border:1px solid ${C.border};border-radius:3px;` +
-        `padding:5px 6px;margin-bottom:4px;background:${C.glass};font-size:12px;cursor:move;transition:border-color .15s;`;
+        `padding:5px 6px;margin-bottom:4px;background:${C.glass};font-size:12px;cursor:move;transition:border-color .15s;opacity:${hidden ? '0.6' : '1'};`;
+
     ctrl.innerHTML = `
         <div style="width:24px;height:24px;flex-shrink:0;background:url('${url}') center/contain no-repeat;border:1px solid ${C.border};border-radius:2px;"></div>
-        <span style="flex-grow:1;color:${C.text};letter-spacing:.04em;">ID ${costumeID}</span>
-        <button class="remove-layer-btn" data-layer-id="${id}"
-            style="background:${C.red};color:#fff;border:none;width:18px;height:18px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;">✕</button>
+        <span style="flex-grow:1;color:${C.text};letter-spacing:.04em;user-select:none;">ID ${costumeID}</span>
+        <button class="toggle-depth-btn" data-layer-id="${id}" title="${back ? 'Перенести костюм перед моделью' : 'Перенести костюм за модель'}"
+            style="background:${C.glass};color:${C.text};border:1px solid ${C.border};width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">${back ? '⇩' : '⇧'}</button>
+        <button class="toggle-vis-btn" data-layer-id="${id}" title="Скрыть/показать"
+            style="background:${C.glass};color:${C.text};border:1px solid ${C.border};width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">${hidden ? '—' : '👁'}</button>
+        <button class="remove-layer-btn" data-layer-id="${id}" title="Удалить"
+            style="background:${C.red};color:#fff;border:none;width:20px;height:20px;border-radius:2px;cursor:pointer;font-size:12px;line-height:1;flex-shrink:0;padding:0;">✕</button>
     `;
+
     ctrl.addEventListener('mouseenter', () => ctrl.style.borderColor = C.goldDim);
     ctrl.addEventListener('mouseleave', () => ctrl.style.borderColor = C.border);
+
+    ctrl.querySelector('.toggle-depth-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        const layer = activeLayers.find(l => l.id === id);
+        if (layer) {
+            layer.back = !layer.back;
+            e.target.textContent = layer.back ? '⇩' : '⇧';
+            e.target.title = layer.back ? 'Перенести костюм перед моделью' : 'Перенести костюм за модель';
+            updateLayerOrder();
+            saveState();
+        }
+    });
+
+    ctrl.querySelector('.toggle-vis-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        const layer = activeLayers.find(l => l.id === id);
+        if (layer) {
+            layer.hidden = !layer.hidden;
+            img.style.display = layer.hidden ? 'none' : 'block';
+            e.target.textContent = layer.hidden ? '—' : '👁';
+            ctrl.style.opacity = layer.hidden ? '0.6' : '1';
+            saveState();
+        }
+    });
+
     ctrl.querySelector('.remove-layer-btn').addEventListener('click', e => { e.stopPropagation(); removeLayer(id); });
     panel.prepend(ctrl);
 }
 
-function addCostumeLayer(url) {
-    if (!url || url.includes('/cw3/composited/')) return;
+function addCostumeLayer(url, hidden = false, skipSave = false, back = null) {
+    const normalizedUrl = getCostumeUrl(url, catAge);
+    if (!normalizedUrl || normalizedUrl.includes('/cw3/composited/')) return;
     const id = `costume-layer-${++layerCounter}`;
     const container = document.querySelector('#try-on-panel-content .try-on-container');
     const panel = document.getElementById('try-on-controller-panel');
     if (!container || !panel) return;
-    activeLayers.unshift({ id, url });
-    renderCostumeLayer(id, url, container, panel);
+
+    if (back === null || back === undefined) {
+        const costumeID = normalizedUrl.match(/costume\/(\d+)\.png/)?.[1];
+        back = costumeID ? isBackCostumeId(costumeID) : false;
+    }
+    back = !!back;
+
+    activeLayers.unshift({ id, url: normalizedUrl, hidden, back });
+    renderCostumeLayer(id, normalizedUrl, hidden, back, container, panel);
     updateLayerOrder();
+    refreshThumbnails();
+
+    if (!skipSave) saveState();
+}
+
+function toggleCostume(url, back = null) {
+    const normalizedUrl = getCostumeUrl(url, catAge);
+    const costumeID = normalizedUrl.match(/costume\/(\d+)\.png/)?.[1];
+    const existing = activeLayers.find(l => {
+        const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+        return id && costumeID && id === costumeID;
+    });
+    if (existing) {
+        removeLayer(existing.id);
+    } else {
+        addCostumeLayer(normalizedUrl, false, false, back);
+    }
 }
 
 function handleFileSelect(e, type) {
@@ -366,7 +840,7 @@ function handleLoad(type) {
     if (type === 'model') {
         changeModel(url);
     } else {
-        addCostumeLayer(url);
+        addCostumeLayer(url, false, false, null);
         pendingUrl.costume = null;
         document.getElementById('costume-file-input').value = '';
         document.getElementById('costume-url-input').value = '';
@@ -381,7 +855,53 @@ function togglePanel(id) {
     content.style.display = open ? 'block' : 'none';
     arrow.textContent = open ? '▾' : '▸';
     if (open && id === 'costume-search' && !document.getElementById('costume-search-thumbnails').children.length)
-        updateSearchDisplay(1);
+        updateSearchDisplay(searchStartID);
+    if (open && id === 'model-loader') renderSavedModels();
+
+    const key = id === 'costume-search' ? 'search' : id === 'model-loader' ? 'model' : 'costume';
+    savePanelState(key, open);
+}
+
+function applySavedPanelState() {
+    const state = getPanelState();
+    if (state.main) {
+        document.getElementById('try-on-panel-content').style.display = 'flex';
+        document.getElementById('main-panel-toggle-btn').textContent = '▾';
+    }
+    if (state.search) {
+        document.getElementById('costume-search-content').style.display = 'block';
+        document.getElementById('costume-search-toggle-btn').textContent = '▾';
+        updateSearchDisplay(searchStartID);
+    }
+    if (state.model) {
+        document.getElementById('model-loader-content').style.display = 'block';
+        document.getElementById('model-loader-toggle-btn').textContent = '▾';
+        renderSavedModels();
+    }
+    if (state.costume) {
+        document.getElementById('costume-loader-content').style.display = 'block';
+        document.getElementById('costume-loader-toggle-btn').textContent = '▾';
+    }
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy') ? resolve() : reject();
+        } catch (e) {
+            reject(e);
+        } finally {
+            ta.remove();
+        }
+    });
 }
 
 function updateSearchDisplay(startId) {
@@ -394,7 +914,7 @@ function updateSearchDisplay(startId) {
     panel.innerHTML = '';
     for (let i = 0; i < searchItemsPerPage; i++) {
         const costumeID = searchStartID + i;
-        const url = `/cw3/cats/0/costume/${costumeID}.png`;
+        const url = getCostumeUrl(costumeID, catAge);
 
         let collection = null;
         for (const [name, data] of Object.entries({ ...COSTUME_COLLECTIONS, ...PASS_PASS })) {
@@ -404,8 +924,14 @@ function updateSearchDisplay(startId) {
             }
         }
 
+        const isApplied = activeLayers.some(l => {
+            const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+            return id && parseInt(id, 10) === costumeID;
+        });
+        const defaultBg = collection ? collection.bgColor : C.glass;
+
         const thumb = document.createElement('div');
-        thumb.style.cssText = thumbCSS(url, '150px') + `position:relative;background-color:${C.glass};overflow:hidden;`;
+        thumb.style.cssText = thumbCSS(url, '150px', isApplied) + `position:relative;background-color:${defaultBg};overflow:hidden;`;
 
         const label = document.createElement('div');
         label.style.cssText = `position:absolute;bottom:0;left:0;width:100%;background:${C.labelBg};color:${C.muted};font-size:11px;text-align:center;padding:2px 0;`;
@@ -416,15 +942,47 @@ function updateSearchDisplay(startId) {
             const collectionLabel = document.createElement('div');
             collectionLabel.style.cssText = `position:absolute;top:2px;left:50%;transform:translateX(-50%);background:${collection.color};color:#fff;font-size:9px;text-align:center;padding:1px 6px;font-weight:bold;z-index:2;border-radius:3px;white-space:normal;word-break:break-word;width:90%;`;
             collectionLabel.textContent = collection.label;
-            thumb.style.backgroundColor = collection.bgColor;
             thumb.appendChild(collectionLabel);
         }
 
-        const defaultBg = collection ? collection.bgColor : C.glass;
-        thumb.style.backgroundColor = defaultBg;
-        thumb.addEventListener('click', () => addCostumeLayer(url));
+        if (isBackCostumeId(costumeID)) {
+            const backBadge = document.createElement('div');
+            backBadge.title = 'Отображается за моделью';
+            backBadge.style.cssText = `position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;line-height:1;padding:2px 4px;border-radius:2px;z-index:2;`;
+            backBadge.textContent = '⇩';
+            thumb.appendChild(backBadge);
+        }
+
+                const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.textContent = '⧉';
+        copyBtn.title = 'Скопировать URL костюма';
+        copyBtn.style.cssText =
+            `position:absolute;bottom:2px;left:2px;z-index:3;width:20px;height:20px;padding:0;` +
+            `background:rgba(0,0,0,.65);color:#fff;border:1px solid ${C.border};border-radius:2px;` +
+            `font-size:12px;line-height:1;cursor:pointer;`;
+        copyBtn.addEventListener('click', e => {
+            e.stopPropagation(); // чтобы не надевался костюм
+            const fullUrl = new URL(url, location.origin).href;
+            copyToClipboard(fullUrl).then(() => {
+                copyBtn.textContent = '✓';
+                setTimeout(() => copyBtn.textContent = '⧉', 1000);
+            }).catch(() => {
+                copyBtn.textContent = '✕';
+                setTimeout(() => copyBtn.textContent = '⧉', 1000);
+            });
+        });
+        thumb.appendChild(copyBtn);
+        thumb.addEventListener('click', () => toggleCostume(url));
         thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
-        thumb.addEventListener('mouseleave', () => { thumb.style.borderColor = C.border; thumb.style.backgroundColor = defaultBg; });
+        thumb.addEventListener('mouseleave', () => {
+            const currentlyApplied = activeLayers.some(l => {
+                const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+                return id && parseInt(id, 10) === costumeID;
+            });
+            thumb.style.borderColor = currentlyApplied ? C.gold : C.border;
+            thumb.style.backgroundColor = defaultBg;
+        });
         panel.appendChild(thumb);
     }
     document.getElementById('current-id-display').textContent = `${searchStartID} — ${searchStartID + searchItemsPerPage - 1}`;
@@ -446,12 +1004,35 @@ function buildPageGrid(costumeUrls) {
     panel.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     panel.innerHTML = '';
 
-    costumeUrls.forEach(url => {
+    costumeUrls.forEach(rawUrl => {
+        const url = getCostumeUrl(rawUrl, catAge);
+        const costumeID = url.match(/costume\/(\d+)\.png/)?.[1];
+        const isApplied = costumeID && activeLayers.some(l => {
+            const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+            return id && id === costumeID;
+        });
+
         const thumb = document.createElement('div');
-        thumb.style.cssText = thumbCSS(url, '75px') + `background-color:${C.glass};`;
-        thumb.addEventListener('click', () => addCostumeLayer(url));
+        thumb.style.cssText = thumbCSS(url, '75px', isApplied) + `background-color:${C.glass};position:relative;`;
+
+        if (costumeID && isBackCostumeId(costumeID)) {
+            const backBadge = document.createElement('div');
+            backBadge.title = 'Отображается за моделью';
+            backBadge.style.cssText = `position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;line-height:1;padding:1px 3px;border-radius:2px;z-index:2;`;
+            backBadge.textContent = '⇩';
+            thumb.appendChild(backBadge);
+        }
+
+        thumb.addEventListener('click', () => toggleCostume(url));
         thumb.addEventListener('mouseenter', () => { thumb.style.borderColor = C.gold; thumb.style.backgroundColor = C.thumbHoverBg; });
-        thumb.addEventListener('mouseleave', () => { thumb.style.borderColor = C.border; thumb.style.backgroundColor = C.glass; });
+        thumb.addEventListener('mouseleave', () => {
+            const currentlyApplied = costumeID && activeLayers.some(l => {
+                const id = l.url.match(/costume\/(\d+)\.png/)?.[1];
+                return id && id === costumeID;
+            });
+            thumb.style.borderColor = currentlyApplied ? C.gold : C.border;
+            thumb.style.backgroundColor = C.glass;
+        });
         panel.appendChild(thumb);
     });
 
@@ -467,7 +1048,11 @@ function bindPanelEvents(costumeUrls) {
     document.getElementById('model-loader-header').addEventListener('click', () => togglePanel('model-loader'));
     document.getElementById('costume-loader-header').addEventListener('click', () => togglePanel('costume-loader'));
     document.getElementById('costume-search-header').addEventListener('click', () => togglePanel('costume-search'));
-    document.getElementById('restore-model-btn').addEventListener('click', () => changeModel(DEFAULT_MODEL_URL));
+
+    if (document.getElementById('restore-model-btn')) {
+        document.getElementById('restore-model-btn').addEventListener('click', () => changeModel(DEFAULT_MODEL_URL));
+    }
+
     document.getElementById('save-preview-100').addEventListener('click', () => exportPreview(100, 150));
     document.getElementById('save-preview-200').addEventListener('click', () => exportPreview(200, 300));
     document.getElementById('search-range-btn').addEventListener('click', handleSearchRange);
@@ -486,23 +1071,32 @@ function bindPanelEvents(costumeUrls) {
         document.getElementById(`${type}-select-file-btn`).addEventListener('click', () => document.getElementById(`${type}-file-input`).click());
         document.getElementById(`${type}-file-input`).addEventListener('change', e => handleFileSelect(e, type));
         document.getElementById(`${type}-url-input`).addEventListener('keydown', e => { if (e.key === 'Enter') handleLoad(type); });
+        document.getElementById(`${type}-url-ok-btn`).addEventListener('click', () => handleLoad(type));
     });
 
-    document.getElementById('main-panel-header').addEventListener('click', e => {
-        if (e.target.closest('#wd-theme-toggle')) return;
+    document.getElementById('main-panel-header').addEventListener('click', () => {
         const content = document.getElementById('try-on-panel-content');
-        const wrapper = document.getElementById('try-on-panel-wrapper');
         const toggleBtn = document.getElementById('main-panel-toggle-btn');
         const open = content.style.display === 'none';
         content.style.display = open ? 'flex' : 'none';
         toggleBtn.textContent = open ? '▾' : '▸';
-        toggleBtn.style.transform = open ? 'rotate(0deg)' : '';
-        wrapper.style.paddingBottom = open ? '20px' : '0';
+        savePanelState('main', open);
     });
 
     document.getElementById('wd-theme-toggle').addEventListener('click', e => {
         e.stopPropagation();
         applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    });
+
+    document.getElementById('wd-update-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    checkForUpdate();
+});
+renderUpdateBtn();
+
+    document.getElementById('wd-age-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleCatAge();
     });
 
     requestAnimationFrame(() => buildPageGrid(costumeUrls));
@@ -513,12 +1107,23 @@ function bindPanelEvents(costumeUrls) {
         if (sp?.children.length) updateSearchDisplay(searchStartID);
     }).observe(document.getElementById('try-on-thumbnails'));
 
-    const initSortable = () => new Sortable(document.getElementById('try-on-controller-panel'), {
-        animation: 150, ghostClass: 'sortable-ghost', onEnd: updateLayerOrder,
-    });
-    if (window.Sortable) {
-        initSortable();
-    } else if (!document.querySelector('script[src*="sortablejs"]')) {
+    const initSortable = () => {
+        const panel = document.getElementById('try-on-controller-panel');
+        if (!panel) return;
+
+        const SortableClass = typeof Sortable !== 'undefined' ? Sortable : (window.Sortable || window.unsafeWindow?.Sortable);
+
+        if (SortableClass) {
+            new SortableClass(panel, {
+                animation: 150, ghostClass: 'sortable-ghost',
+                onEnd: () => { updateLayerOrder(); saveState(); }
+            });
+        }
+    };
+
+    if (document.querySelector('script[src*="sortablejs"]')) {
+        setTimeout(initSortable, 50);
+    } else {
         const sortableScript = document.createElement('script');
         sortableScript.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
         sortableScript.onload = initSortable;
@@ -530,33 +1135,25 @@ function rebuildPanel() {
     const wrapper = document.getElementById('try-on-panel-wrapper');
     if (!wrapper) return;
 
+    const wasFabOpen  = wrapper.style.display !== 'none';
     const wasOpen     = document.getElementById('try-on-panel-content')?.style.display !== 'none';
     const searchOpen  = document.getElementById('costume-search-content')?.style.display !== 'none';
     const modelOpen   = document.getElementById('model-loader-content')?.style.display !== 'none';
     const costumeOpen = document.getElementById('costume-loader-content')?.style.display !== 'none';
-    const modelSrc    = document.getElementById('player-model')?.src ?? DEFAULT_MODEL_URL;
+    const modelSrc    = document.getElementById('player-model')?.getAttribute('src') || DEFAULT_MODEL_URL;
 
     document.getElementById('wd-style')?.remove();
     injectStyles();
 
-    wrapper.style.cssText =
-        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
-        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
-        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
-        `position:relative;overflow:hidden;`;
+    wrapper.style.cssText = wrapperFloatingCSS(wasFabOpen ? 'block' : 'none');
     wrapper.innerHTML = buildPanelInnerHTML(modelSrc);
 
-    const costumeUrls = [];
-    document.querySelectorAll('#main button div[style*="background-image: url"]').forEach(icon => {
-        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
-    });
+    const costumeUrls = mergeCostumeUrls(collectCostumeUrls(activeCostumeSelector));
     bindPanelEvents(costumeUrls);
 
     if (wasOpen) {
         document.getElementById('try-on-panel-content').style.display = 'flex';
         document.getElementById('main-panel-toggle-btn').textContent = '▾';
-        wrapper.style.paddingBottom = '20px';
     }
     if (searchOpen) {
         document.getElementById('costume-search-content').style.display = 'block';
@@ -564,105 +1161,163 @@ function rebuildPanel() {
         updateSearchDisplay(searchStartID);
     }
     ['model', 'costume'].forEach(t => {
-        if (t === 'model' ? modelOpen : costumeOpen)
+        if (t === 'model' ? modelOpen : costumeOpen) {
             document.getElementById(`${t}-loader-content`).style.display = 'block';
+
+            if (t === 'model') renderSavedModels();
+        }
     });
 
     if (activeLayers.length) {
         const container = document.querySelector('#try-on-panel-content .try-on-container');
         const panel = document.getElementById('try-on-controller-panel');
-        [...activeLayers].reverse().forEach(({ id, url }) => renderCostumeLayer(id, url, container, panel));
+        [...activeLayers].reverse().forEach(({ id, url, hidden, back }) => renderCostumeLayer(id, url, hidden, back, container, panel));
         updateLayerOrder();
     }
+
+    updateFabTheme();
 }
 
 function extractModelUrl(firstDiv) {
-    if (firstDiv) {
-        const attr = firstDiv.getAttribute('style') || '';
+    const first = firstDiv ||
+        document.querySelector('[data-v-59afe5e8][class="first"]') ||
+        document.querySelector('[class="first"]');
+
+    if (first) {
+        const attr = first.getAttribute('style') || '';
         const m = attr.match(/url\(['"]?(.*?)['"]?\)/);
         if (m?.[1]) return m[1];
-        const cm = window.getComputedStyle(firstDiv).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-        if (cm?.[1]) return cm[1];
+
+        const cm = window.getComputedStyle(first).backgroundImage;
+        if (cm && cm !== 'none') {
+            const cmMatch = cm.match(/url\(['"]?(.*?)['"]?\)/);
+            if (cmMatch?.[1]) return cmMatch[1];
+        }
     }
+
+    const imgEl = document.querySelector('img[src*="/cw3/composited/"]');
+    if (imgEl) return imgEl.src;
+
     for (const el of document.querySelectorAll('div[style*="/cw3/composited/"]')) {
-        const m = el.getAttribute('style').match(/url\(['"]?(.*?)['"]?\)/);
+        const m = el.getAttribute('style')?.match(/url\(['"]?(.*?)['"]?\)/);
         if (m?.[1]) return m[1];
     }
+
     const comp = document.querySelector('div[style*="composited"]');
     if (comp) {
         const m = window.getComputedStyle(comp).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
         if (m?.[1]) return m[1];
     }
+
     return '';
 }
 
-function injectPanel(anchorEl, firstDivOrPosition, costumeSourceSelector) {
-    let insertPosition, firstDiv;
-    if (typeof firstDivOrPosition === 'string') {
-        insertPosition = firstDivOrPosition;
-        firstDiv = null;
-    } else {
-        insertPosition = 'afterend';
-        firstDiv = firstDivOrPosition;
-        costumeSourceSelector = 'div[style*="background-image: url"]';
-    }
+function injectPanel(firstDiv, costumeSourceSelector) {
+    activeCostumeSelector = costumeSourceSelector;
 
     const url = extractModelUrl(firstDiv);
     if (url) DEFAULT_MODEL_URL = url;
+    activeModelUrl = DEFAULT_MODEL_URL;
 
     injectStyles();
 
     const wrapper = document.createElement('div');
     wrapper.id = 'try-on-panel-wrapper';
-    wrapper.style.cssText =
-        `border:1px solid ${C.border};border-radius:4px;background:${C.panel};` +
-        `backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);` +
-        `padding:0 20px;margin:20px auto;width:90%;max-width:1300px;color:${C.text};` +
-        `position:relative;overflow:hidden;`;
+    wrapper.style.cssText = wrapperFloatingCSS('none');
+    document.body.appendChild(wrapper);
 
-    if (insertPosition === 'afterend') {
-        anchorEl.insertAdjacentElement('afterend', document.createElement('hr'));
-        anchorEl.insertAdjacentElement('afterend', wrapper);
-    } else {
-        anchorEl.insertAdjacentHTML(insertPosition, wrapper.outerHTML + '<hr>');
+    wrapper.innerHTML = buildPanelInnerHTML(DEFAULT_MODEL_URL);
+
+    bindPanelEvents(mergeCostumeUrls(collectCostumeUrls(costumeSourceSelector)));
+    restoreSavedState();
+    applySavedPanelState();
+
+    createFAB();
+    if (appStorage.getItem('wd-fab-open', false)) {
+        wrapper.style.display = 'block';
     }
 
-    document.getElementById('try-on-panel-wrapper').innerHTML = buildPanelInnerHTML(DEFAULT_MODEL_URL);
+    startLiveCostumeRescan();
+    startSpaNavigationWatch();
+    startPeriodicRescan();
+}
 
-    const costumeUrls = [];
-    document.querySelectorAll(costumeSourceSelector).forEach(icon => {
-        const m = window.getComputedStyle(icon).backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-        if (m?.[1]?.includes('/cw3/cats/')) costumeUrls.push(m[1]);
+function rescanModel() {
+    const img = document.getElementById('player-model');
+    if (!img) return;
+
+    const url = extractModelUrl();
+    if (!url) return;
+
+    const currentSrc = img.getAttribute('src') || '';
+    if (!currentSrc || (currentSrc === DEFAULT_MODEL_URL && currentSrc !== url)) {
+        changeModel(url, true);
+    }
+    DEFAULT_MODEL_URL = url;
+}
+
+function rescanPageCostumes() {
+    if (!document.getElementById('try-on-panel-wrapper')) return;
+    buildPageGrid(mergeCostumeUrls(collectCostumeUrls(activeCostumeSelector)));
+    rescanModel();
+}
+
+function startLiveCostumeRescan() {
+    if (window.__wdCostumeObserverStarted) return;
+    window.__wdCostumeObserverStarted = true;
+
+    let debounceTimer = null;
+    new MutationObserver(mutations => {
+        const wrapper = document.getElementById('try-on-panel-wrapper');
+        const isExternalChange = mutations.some(mu => !wrapper || !wrapper.contains(mu.target));
+        if (!isExternalChange) return;
+
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(rescanPageCostumes, 250);
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'style', 'class'] });
+}
+
+function startSpaNavigationWatch() {
+    if (window.__wdSpaWatchStarted) return;
+    window.__wdSpaWatchStarted = true;
+
+    let lastUrl = location.href;
+    const onNavigate = () => {
+        if (location.href === lastUrl) return;
+        lastUrl = location.href;
+        setTimeout(rescanPageCostumes, 300);
+        setTimeout(rescanPageCostumes, 900);
+    };
+
+    ['pushState', 'replaceState'].forEach(fnName => {
+        const original = history[fnName];
+        history[fnName] = function (...args) {
+            const result = original.apply(this, args);
+            onNavigate();
+            return result;
+        };
     });
 
-    bindPanelEvents(costumeUrls);
+    window.addEventListener('popstate', onNavigate);
+    window.addEventListener('hashchange', onNavigate);
+    setInterval(onNavigate, 800);
+}
+
+function startPeriodicRescan() {
+    if (window.__wdPeriodicRescanStarted) return;
+    window.__wdPeriodicRescanStarted = true;
+    setInterval(rescanPageCostumes, 1500);
 }
 
 (function () {
-    const isSettingsCostumes = /\/settings_costumes/.test(location.pathname);
+    function boot() {
+        if (document.getElementById('try-on-panel-wrapper') || !document.body) return false;
+        const firstDiv = document.querySelector('[class="first"]');
+        injectPanel(firstDiv, COSTUME_ICON_SELECTOR);
+        return true;
+    }
 
-    if (isSettingsCostumes) {
-        const tryInsert = () => {
-            if (document.getElementById('try-on-panel-wrapper')) return true;
-            const col3 = document.querySelector('div[data-v-5fa27571][class*="col-3"]');
-            if (!col3) return false;
-            const firstDiv =
-                col3.querySelector('[class="first"]') ||
-                col3.querySelector('[class*="first"]') ||
-                document.querySelector('[data-v-59afe5e8][class="first"]') ||
-                document.querySelector('[class="first"]');
-            if (!firstDiv) return false;
-            injectPanel(col3, firstDiv);
-            return true;
-        };
-
-        if (!tryInsert()) {
-            const observer = new MutationObserver(() => { if (tryInsert()) observer.disconnect(); });
-            observer.observe(document.body, { childList: true, subtree: true });
-        }
-    } else {
-        const mainDiv = document.getElementById('main');
-        if (!mainDiv) return;
-        injectPanel(mainDiv, 'beforebegin', '#main button div[style*="background-image: url"]');
+    if (!boot()) {
+        const poll = setInterval(() => { if (boot()) clearInterval(poll); }, 200);
     }
 })();
