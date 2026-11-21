@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WARDROBE
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
+// @version      1.2.7
 // @description  Гардероб + библиотека костюмов Catwar. ИНСТРУКЦИЯ И ОБРАТНАЯ СВЯЗЬ: https://catwar.su/sniff1186155 | https://catwar.net/sniff1186155
 // @author       RESSOR
 // @match        http*://*.catwar.net/settings*
@@ -158,6 +158,7 @@ const PASS = [
     { name: "ПУТЕШЕСТВИЕ В КОСМОС", id: 103644 }, { name: "КИБЕРПАНК", id: 103813 },
     { name: "В ПОКОЯХ ЛЕСА", id: 104273 },        { name: "СЕРДЦЕ ПУСТЫНИ", id: 104575 },
     { name: "ДРЕВНЯЯ ГРЕЦИЯ", id: 105322 },       { name: "ПРИРОДНЫЕ СТИХИИ", id: 106592 },
+    { name: "ГОТИКА", id: 106930 },               { name: "ДРЕВНИЙ КИТАЙ", id: 107918 },
 ];
 
 const PASS_PASS = {
@@ -178,7 +179,9 @@ const PASS_PASS = {
             [104066,104068],[104074,104081],[104092,104333],[104373,104402],[104418,104450],[104515,104630],
             [104951,105036],[105107,105171],[105212,105242],[105285,105300],[105317,105449],[105770,105860],
             [105880,106313],[106316,106509],[106520,106575], [106592,106704],[106781,106796],
-            [106807,106857], [106860,106929]
+            [106807,106857], [106860,106929], [106930,107038], [107044,107262], [107281,107471],
+            [107522,107638], [107687,107692], [107698,107745], [107779,107786], [107779,107790],
+            [107779,107814], [107869,108157]
         ].flatMap(([a,b=a])=>Array.from({length:b-a+1},(_,i)=>a+i)),
         color: '#752424bd', bgColor: '#914f4f38', label: 'В ПРОПУСКЕ'
     }
@@ -524,6 +527,10 @@ function renderSavedModels() {
 }
 
 function buildPanelInnerHTML(modelSrc) {
+    const _ps = getPanelState();
+    const passesOpen = _ps.passes !== false;
+    const othersOpen = _ps.others !== false;
+
     const quickBtns = PASS.map(cat =>
         `<button onclick="document.getElementById('search-start-id-input').value='${cat.id}';document.getElementById('search-range-btn').click();"
             style="padding:3px 8px;font-size:14px;letter-spacing:.08em;background:${C.glass};color:${C.muted};border:1px solid ${C.border};border-radius:2px;cursor:pointer;transition:border-color .15s,color .15s;font-family:inherit;">
@@ -592,13 +599,19 @@ function buildPanelInnerHTML(modelSrc) {
                 <span class="wd-title" style="font-size:13px;letter-spacing:.2em;color:${C.gold};">ПОИСК КОСТЮМОВ</span>
             </div>
             <div id="costume-search-content" style="display:none;padding:14px 12px 16px;">
-                <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
-                    <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;">ПРОПУСКИ</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                                <div id="quick-panel" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+                    <div id="passes-header" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:0 8px;">
+                        <button id="passes-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:12px;cursor:pointer;padding:0;line-height:1;">${passesOpen ? '▾' : '▸'}</button>
+                        <span style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;">ПРОПУСКИ</span>
+                    </div>
+                    <div id="passes-content" style="display:${passesOpen ? 'flex' : 'none'};flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
                         ${quickBtns}
                     </div>
-                    <div style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;padding:0 8px;margin-top:4px;">ДРУГИЕ КОСТЮМЫ</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
+                    <div id="others-header" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:0 8px;margin-top:4px;">
+                        <button id="others-toggle-btn" style="background:none;border:none;color:${C.gold};font-size:12px;cursor:pointer;padding:0;line-height:1;">${othersOpen ? '▾' : '▸'}</button>
+                        <span style="font-size:12px;letter-spacing:.12em;color:${C.muted};text-transform:uppercase;font-weight:600;">ДРУГИЕ КОСТЮМЫ</span>
+                    </div>
+                    <div id="others-content" style="display:${othersOpen ? 'flex' : 'none'};flex-wrap:wrap;gap:4px;padding:8px;background:${C.bg};border:1px solid ${C.border};border-radius:3px;">
                         ${collectionBtns}
                     </div>
                 </div>
@@ -847,6 +860,16 @@ function handleLoad(type) {
     }
 }
 
+function toggleQuickSection(key) {
+    const content = document.getElementById(`${key}-content`);
+    const arrow = document.getElementById(`${key}-toggle-btn`);
+    if (!content || !arrow) return;
+    const open = content.style.display === 'none';
+    content.style.display = open ? 'flex' : 'none';
+    arrow.textContent = open ? '▾' : '▸';
+    savePanelState(key, open);
+}
+
 function togglePanel(id) {
     const content = document.getElementById(`${id}-content`);
     const arrow = document.getElementById(`${id}-toggle-btn`);
@@ -1048,6 +1071,8 @@ function bindPanelEvents(costumeUrls) {
     document.getElementById('model-loader-header').addEventListener('click', () => togglePanel('model-loader'));
     document.getElementById('costume-loader-header').addEventListener('click', () => togglePanel('costume-loader'));
     document.getElementById('costume-search-header').addEventListener('click', () => togglePanel('costume-search'));
+    document.getElementById('passes-header').addEventListener('click', () => toggleQuickSection('passes'));
+    document.getElementById('others-header').addEventListener('click', () => toggleQuickSection('others'));
 
     if (document.getElementById('restore-model-btn')) {
         document.getElementById('restore-model-btn').addEventListener('click', () => changeModel(DEFAULT_MODEL_URL));
